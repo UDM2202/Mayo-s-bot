@@ -25,7 +25,7 @@ app.use(express.json());
 app.use('/api/tasks', tasksRouter);
 app.use('/api/teams', teamsRouter);
 app.use('/api/auth', authRouter);
-pp.use(express.static(path.join(__dirname, '..', 'dist')));
+app.use(express.static(path.join(__dirname, '..', 'dist')));
 
 // Health check
 app.get('/api/health', (req, res) => {

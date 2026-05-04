@@ -1,5 +1,0 @@
-﻿[phases.setup]
-nixPkgs = ["nodejs", "nodePackages.npm"]
-
-[start]
-cmd = "node src/server.js"

@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface-1: #0a0a0f;
+  --color-surface-2: #131320;
+  --color-surface-3: #1a1a2e;
+  --color-surface-4: #242438;
+  --color-accent: #a78bfa;
+  --color-accent-glow: #c4b5fd;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-danger: #f87171;
+}
+
+@layer base {
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--color-surface-1);
+    color: #e2e8f0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--color-surface-4); border-radius: 999px; }
+}
+
+/* Mobile styles */
+@media (max-width: 768px) {
+  .sidebar-mobile { position: fixed; z-index: 50; left: 0; top: 0; bottom: 0; transform: translateX(-100%); transition: transform 0.3s ease; }
+  .sidebar-mobile.open { transform: translateX(0); }
+  .kanban-column { min-width: 85vw; }
+  .mobile-menu-btn { display: flex !important; }
+  .desktop-only { display: none !important; }
+  .mobile-full { width: 100% !important; }
+}
+
+@media (min-width: 769px) {
+  .mobile-menu-btn { display: none !important; }
+}

@@ -4,10 +4,14 @@ import tasksRouter from './api/tasks.js';
 import teamsRouter from './api/teams.js';
 import authRouter from './api/auth.js';
 import 'dotenv/config';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 
 const app = express();
 const port = process.env.PORT || 3001;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Middleware
 app.use(cors({
@@ -21,10 +25,17 @@ app.use(express.json());
 app.use('/api/tasks', tasksRouter);
 app.use('/api/teams', teamsRouter);
 app.use('/api/auth', authRouter);
+pp.use(express.static(path.join(__dirname, '..', 'dist')));
 
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.get('*', (req, res) => {
+  if (!req.path.startsWith('/api')) {
+    res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  }
 });
 
 import slackOauthRouter from './api/slack-oauth.js';

@@ -1,7 +1,14 @@
 {
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "npm install"
+    "buildCommand": "npm install && npm run build",
+    "nixpacksConfig": {
+      "phases": {
+        "setup": {
+          "nixPkgs": ["nodejs_20"]
+        }
+      }
+    }
   },
   "deploy": {
     "startCommand": "node src/server.js",

@@ -169,8 +169,7 @@ export default function Canvas({ onMenuClick }) {
         </div>
         <div className="flex items-center gap-2 md:gap-3">
           {/* Export button */}
-          <a
-            href={`http://localhost:3001/api/tasks/export/csv?team=${activeTeam}`}
+         <a href={`/api/tasks/export/csv?team=${activeTeam}`}
             className="text-xs text-slate-500 hover:text-slate-300 bg-slate-800 px-2 md:px-3 py-1.5 md:py-2 rounded-lg transition hidden sm:inline-flex items-center gap-1"
             download
           >

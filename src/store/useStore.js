@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-const API = 'http://localhost:3001/api';
+const API = '/api';
 
 const useStore = create((set, get) => ({
   activeView: 'board',

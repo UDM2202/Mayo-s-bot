@@ -16,7 +16,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
   const { activeView, setActiveView, activeTeam, setActiveTeam } = useStore();
 
   useEffect(() => {
-    fetch('http://localhost:3001/api/teams')
+   fetch('/api/teams')
       .then(r => r.json())
       .then(setTeams)
       .catch(() => setTeams([

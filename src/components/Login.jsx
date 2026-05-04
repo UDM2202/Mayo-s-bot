@@ -10,11 +10,11 @@ export default function Login({ onLogin }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    const endpoint = isRegister ? '/api/auth/register' : '/api/auth/login';
+   const endpoint = isRegister ? '/api/auth/register' : '/api/auth/login';
     const body = isRegister ? { username, password, team_id: team } : { username, password };
     
     try {
-      const res = await fetch(`http://localhost:3001${endpoint}`, {
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

@@ -11,7 +11,7 @@ const COLUMNS = [
   { id: 'completed', label: 'Done', color: '#34d399' },
 ];
 
-function BoardView({ tasks, moveTask, openModal }) {
+function BoardView({ tasks, moveTask }) {
   const grouped = COLUMNS.map(col => ({
     ...col,
     tasks: tasks.filter(t => t.status === col.id),
@@ -141,54 +141,42 @@ function InsightsView({ tasks }) {
 }
 
 export default function Canvas({ onMenuClick }) {
+  const { tasks, personalTasks, showMyTasks, moveTask, activeTeam, activeView, openModal } = useStore();
 
- const { tasks, personalTasks, showMyTasks, moveTask, activeTeam, activeView, openModal } = useStore();
-
-const displayTasks = showMyTasks ? personalTasks : tasks.filter(t => t.team_id === activeTeam);
+  const displayTasks = showMyTasks ? personalTasks : tasks.filter(t => t.team_id === activeTeam);
 
   const viewComponents = { board: BoardView, list: ListView, timeline: TimelineView, insights: InsightsView };
   const ActiveView = viewComponents[activeView] || BoardView;
 
   return (
     <main className="flex-1 flex flex-col min-w-0">
-      {/* HEADER */}
       <header className="h-16 flex items-center justify-between px-4 md:px-8 border-b border-white/[0.04] bg-surface-2/50 backdrop-blur-xl flex-shrink-0">
         <div className="flex items-center gap-2 md:gap-4">
-          {/* Mobile menu button */}
-          <button className="mobile-menu-btn text-xl text-slate-400 hover:text-white p-2" onClick={onMenuClick}>
-            ☰
-          </button>
+          <button className="mobile-menu-btn text-xl text-slate-400 hover:text-white p-2" onClick={onMenuClick}>☰</button>
           <h1 className="text-base md:text-lg font-semibold text-white capitalize truncate">
-            {activeView === 'insights' ? `${activeTeam} Insights` : activeTeam}
+            {showMyTasks ? 'My Tasks' : (activeView === 'insights' ? `${activeTeam} Insights` : activeTeam)}
           </h1>
           <span className="text-xs text-slate-500 bg-slate-800 px-2 py-1 rounded-md hidden sm:inline">
             {displayTasks.length} tasks
           </span>
         </div>
         <div className="flex items-center gap-2 md:gap-3">
-          {/* Export button */}
-         <a href={`/api/tasks/export/csv?team=${activeTeam}`}
+          <a href={`/api/tasks/export/csv?team=${activeTeam}`}
             className="text-xs text-slate-500 hover:text-slate-300 bg-slate-800 px-2 md:px-3 py-1.5 md:py-2 rounded-lg transition hidden sm:inline-flex items-center gap-1"
-            download
-          >
+            download>
             📥 <span className="hidden lg:inline">Export</span>
           </a>
-          {/* New Task button */}
-          <button
-            onClick={() => openModal()}
-            className="bg-purple-600 hover:bg-purple-500 text-white px-3 md:px-4 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-medium transition flex items-center gap-1"
-          >
+          <button onClick={() => openModal()}
+            className="bg-purple-600 hover:bg-purple-500 text-white px-3 md:px-4 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-medium transition flex items-center gap-1">
             + <span className="hidden sm:inline">New Task</span>
           </button>
         </div>
       </header>
 
-      {/* AI COMMAND BAR */}
       <div className="px-4 md:px-8 py-4 flex-shrink-0">
         <AICommandBar />
       </div>
 
-      {/* CONTENT */}
       <div className="flex-1 overflow-auto px-4 md:px-8 pb-8">
         <ActiveView tasks={displayTasks} moveTask={moveTask} openModal={openModal} />
       </div>

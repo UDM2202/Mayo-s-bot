@@ -4,31 +4,36 @@ import { v4 as uuid } from 'uuid';
 import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
-router.use(authMiddleware);   // every route below requires a valid token
+router.use(authMiddleware);
 
-// Get tasks for the logged-in user's team
+// Get tasks for a team (must be a member)
 router.get('/', (req, res) => {
-  const rows = db.prepare('SELECT * FROM tasks WHERE team_id = ? ORDER BY created_at DESC').all(req.user.team_id);
-  const tasks = rows.map(task => ({
-    ...task,
-    tags: JSON.parse(task.tags || '[]')
-  }));
+  const teamId = req.query.team || req.user.team_id;   // default to user's team
+  const member = db.prepare('SELECT 1 FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, teamId);
+  if (!member) return res.status(403).json({ error: 'Not a member of this team' });
+
+  const rows = db.prepare('SELECT * FROM tasks WHERE team_id = ? ORDER BY created_at DESC').all(teamId);
+  const tasks = rows.map(task => ({ ...task, tags: JSON.parse(task.tags || '[]') }));
   res.json(tasks);
 });
 
-// Get single task (only if it belongs to the user's team)
+// Get single task
 router.get('/:id', (req, res) => {
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ? AND team_id = ?').get(req.params.id, req.user.team_id);
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
   if (!task) return res.status(404).json({ error: 'Task not found' });
+  // Check membership
+  const member = db.prepare('SELECT 1 FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, task.team_id);
+  if (!member) return res.status(403).json({ error: 'Access denied' });
   task.tags = JSON.parse(task.tags || '[]');
   res.json(task);
 });
 
-// Create task – force team_id from the authenticated user
+// Create task
 router.post('/', (req, res) => {
   const body = req.body;
   const id = uuid();
   const now = new Date().toISOString();
+  const team = req.user.team_id;   // force team from auth
 
   db.prepare(`
     INSERT INTO tasks (id, title, description, status, assignee, team_id, priority, due_date, tags, created_at, updated_at)
@@ -39,7 +44,7 @@ router.post('/', (req, res) => {
     body.description || '',
     body.status || 'pending',
     body.assignee || req.user.username,
-    req.user.team_id,                         // always use the authenticated user's team
+    team,
     body.priority || 'medium',
     body.due_date || '',
     JSON.stringify(body.tags || []),
@@ -56,18 +61,20 @@ router.post('/', (req, res) => {
   res.status(201).json(task);
 });
 
-// Update task – verify ownership
+// Update task
 router.put('/:id', (req, res) => {
   const { id } = req.params;
   const body = req.body;
   const now = new Date().toISOString();
 
-  const existing = db.prepare('SELECT * FROM tasks WHERE id = ? AND team_id = ?').get(id, req.user.team_id);
+  const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'Task not found' });
+  const member = db.prepare('SELECT 1 FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, existing.team_id);
+  if (!member) return res.status(403).json({ error: 'Access denied' });
 
   db.prepare(`
-    UPDATE tasks
-    SET title = ?, description = ?, status = ?, assignee = ?, team_id = ?,
+    UPDATE tasks 
+    SET title = ?, description = ?, status = ?, assignee = ?, team_id = ?, 
         priority = ?, due_date = ?, tags = ?, updated_at = ?
     WHERE id = ?
   `).run(
@@ -75,7 +82,7 @@ router.put('/:id', (req, res) => {
     body.description ?? existing.description,
     body.status ?? existing.status,
     body.assignee ?? existing.assignee,
-    req.user.team_id,                         // keep team unchanged
+    existing.team_id,
     body.priority ?? existing.priority,
     body.due_date ?? existing.due_date,
     JSON.stringify(body.tags ?? JSON.parse(existing.tags || '[]')),
@@ -94,11 +101,13 @@ router.put('/:id', (req, res) => {
   res.json(task);
 });
 
-// Delete task – verify ownership
+// Delete task
 router.delete('/:id', (req, res) => {
   const { id } = req.params;
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ? AND team_id = ?').get(id, req.user.team_id);
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
   if (!task) return res.status(404).json({ error: 'Task not found' });
+  const member = db.prepare('SELECT 1 FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, task.team_id);
+  if (!member) return res.status(403).json({ error: 'Access denied' });
 
   db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
   db.prepare('INSERT INTO activity_log (task_id, action, details) VALUES (?, ?, ?)').run(
@@ -107,19 +116,26 @@ router.delete('/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// Activity log (optional, scoped)
+// Activity log
 router.get('/activity/:taskId', (req, res) => {
-  const task = db.prepare('SELECT id FROM tasks WHERE id = ? AND team_id = ?').get(req.params.taskId, req.user.team_id);
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.taskId);
   if (!task) return res.status(404).json({ error: 'Task not found' });
+  const member = db.prepare('SELECT 1 FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, task.team_id);
+  if (!member) return res.status(403).json({ error: 'Access denied' });
+
   const logs = db.prepare('SELECT * FROM activity_log WHERE task_id = ? ORDER BY created_at DESC').all(req.params.taskId);
   res.json(logs);
 });
 
-// Export CSV – only the user's team tasks
+// Export CSV
 router.get('/export/csv', (req, res) => {
-  const tasks = db.prepare('SELECT * FROM tasks WHERE team_id = ?').all(req.user.team_id);
+  const teamId = req.query.team || req.user.team_id;
+  const member = db.prepare('SELECT 1 FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, teamId);
+  if (!member) return res.status(403).json({ error: 'Not a member' });
+
+  const tasks = db.prepare('SELECT * FROM tasks WHERE team_id = ?').all(teamId);
   const header = 'ID,Title,Status,Assignee,Team,Priority,Due Date,Created\n';
-  const rows = tasks.map(t =>
+  const rows = tasks.map(t => 
     `${t.id},"${t.title}",${t.status},${t.assignee},${t.team_id},${t.priority},${t.due_date},${t.created_at}`
   ).join('\n');
 

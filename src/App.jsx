@@ -17,14 +17,9 @@ export default function App() {
   } = useStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  useEffect(() => { loadUser(); }, []);
   useEffect(() => {
-    loadUser();                // try to load existing session
-  }, []);
-
-  useEffect(() => {
-    if (user) {
-      startPolling();
-    }
+    if (user) startPolling();
     return () => stopPolling();
   }, [user]);
 

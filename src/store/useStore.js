@@ -47,26 +47,29 @@ const useStore = create((set, get) => ({
     set({ user: null, token: null, tasks: [], personalTasks: [], teams: [], activeTeam: 'engineering', showMyTasks: false });
   },
 
-  // ── Auth header ──
   getHeaders: () => {
     const { token } = get();
     return token ? { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } : { 'Content-Type': 'application/json' };
   },
 
-  // ── Teams ──
   fetchTeams: async () => {
     try {
       const res = await fetch('/api/teams', { headers: get().getHeaders() });
       const data = await res.json();
       set({ teams: data });
-    } catch (err) { /* ignore */ }
+      const current = get().activeTeam;
+      if (data.length > 0 && !data.find(t => t.id === current)) {
+        set({ activeTeam: data[0].id });
+        if (!get().showMyTasks) get().loadTasks(data[0].id);
+      }
+    } catch (err) { console.error('fetchTeams error:', err); }
   },
 
-  // ── Team tasks ──
-  loadTasks: async () => {
+  loadTasks: async (teamId) => {
+    const team = teamId || get().activeTeam;
     set({ loading: true });
     try {
-      const res = await fetch(`${API}/tasks`, { headers: get().getHeaders() });
+      const res = await fetch(`${API}/tasks?team=${team}`, { headers: get().getHeaders() });
       const data = await res.json();
       set({ tasks: data, loading: false });
     } catch (err) {
@@ -75,15 +78,23 @@ const useStore = create((set, get) => ({
     }
   },
 
-  // ── My Tasks ──
   loadMyTasks: async () => {
-    // "My Tasks" = team tasks where assignee == current user
+    const user = get().user;
+    if (!user) return;
+    // My Tasks = all team tasks where assignee == current user
     try {
-      const res = await fetch(`${API}/tasks`, { headers: get().getHeaders() });   // get all team tasks
-      const all = await res.json();
-      const myTasks = all.filter(t => t.assignee === get().user?.username);
-      set({ personalTasks: myTasks });
-    } catch (err) { /* ignore */ }
+      // We'll fetch all teams' tasks? Actually only active team? My Tasks should be across all teams.
+      // Simpler: fetch all tasks for all teams the user belongs to, then filter.
+      const teams = get().teams;
+      if (teams.length === 0) return;
+      const allTasks = [];
+      for (const t of teams) {
+        const res = await fetch(`${API}/tasks?team=${t.id}`, { headers: get().getHeaders() });
+        const teamTasks = await res.json();
+        allTasks.push(...teamTasks);
+      }
+      set({ personalTasks: allTasks.filter(task => task.assignee === user.username) });
+    } catch (err) { console.error('loadMyTasks error:', err); }
   },
 
   toggleMyTasks: () => {
@@ -93,7 +104,6 @@ const useStore = create((set, get) => ({
     else get().loadTasks();
   },
 
-  // ── CRUD ──
   addTask: async (taskData) => {
     try {
       await fetch(`${API}/tasks`, {
@@ -133,7 +143,45 @@ const useStore = create((set, get) => ({
 
   moveTask: (id, newStatus) => get().updateTask(id, { status: newStatus }),
 
-  // ── Polling ──
+  joinTeam: async (teamId) => {
+    try {
+      await fetch('/api/teams/join', {
+        method: 'POST',
+        headers: get().getHeaders(),
+        body: JSON.stringify({ team_id: teamId }),
+      });
+      get().fetchTeams();
+    } catch (err) { console.error(err); }
+  },
+
+  leaveTeam: async (teamId) => {
+    try {
+      await fetch('/api/teams/leave', {
+        method: 'POST',
+        headers: get().getHeaders(),
+        body: JSON.stringify({ team_id: teamId }),
+      });
+      get().fetchTeams();
+    } catch (err) { console.error(err); }
+  },
+
+  createTeam: async (name) => {
+    try {
+      await fetch('/api/teams', {
+        method: 'POST',
+        headers: get().getHeaders(),
+        body: JSON.stringify({ name }),
+      });
+      get().fetchTeams();
+    } catch (err) { console.error(err); }
+  },
+
+  setActiveTeam: (teamId) => {
+    set({ activeTeam: teamId });
+    if (!get().showMyTasks) get().loadTasks(teamId);
+    else get().loadMyTasks();
+  },
+
   startPolling: () => {
     get().stopPolling();
     const id = setInterval(() => {

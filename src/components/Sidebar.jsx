@@ -8,11 +8,14 @@ const VIEWS = [
   { id: 'insights', label: 'Insights', icon: '◆' },
 ];
 
+const TEAM_COLORS = ['#a78bfa', '#f472b6', '#34d399', '#fbbf24', '#60a5fa', '#f87171'];
+
 export default function Sidebar({ mobileOpen, onMobileClose }) {
   const [collapsed, setCollapsed] = useState(false);
   const {
     activeView, setActiveView,
-    activeTeam,
+    activeTeam, setActiveTeam,
+    teams, createTeam, joinTeam,
     showMyTasks, toggleMyTasks,
   } = useStore();
 
@@ -34,26 +37,35 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
           </button>
         ))}
 
-        {/* My Tasks toggle */}
-        <button
-          onClick={() => { toggleMyTasks(); onMobileClose?.(); }}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all relative ${
-            showMyTasks ? 'text-white bg-white/[0.06]' : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.03]'
-          }`}
-        >
+        <button onClick={() => { toggleMyTasks(); onMobileClose?.(); }}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all relative ${showMyTasks ? 'text-white bg-white/[0.06]' : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.03]'}`}>
           <span className="text-lg w-6 text-center">👤</span>
           {!collapsed && <span className="flex-1 text-left font-medium">My Tasks</span>}
           {showMyTasks && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-purple-400 rounded-r-full" />}
         </button>
       </nav>
 
-      {/* User’s team */}
-      <div className="px-3 py-4 border-t border-white/[0.04]">
-        {!collapsed && <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Your Team</p>}
-        <div className="flex items-center gap-3 px-3 py-2 rounded-lg">
-          <span className="w-2 h-2 rounded-full bg-purple-400" />
-          {!collapsed && <span className="text-sm text-white capitalize">{activeTeam}</span>}
-        </div>
+      <div className="px-3 py-4 border-t border-white/[0.04] flex-1 overflow-y-auto">
+        {!collapsed && <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Teams</p>}
+        {teams.map((team, i) => (
+          <button key={team.id} onClick={() => { setActiveTeam(team.id); onMobileClose?.(); }}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg mb-1 transition-all ${activeTeam === team.id ? 'bg-white/[0.04]' : 'hover:bg-white/[0.02]'}`}>
+            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: TEAM_COLORS[i % TEAM_COLORS.length] }} />
+            {!collapsed && <span className={`text-sm capitalize ${activeTeam === team.id ? 'text-white' : 'text-slate-500'}`}>{team.name}</span>}
+          </button>
+        ))}
+        {!collapsed && (
+          <div className="mt-2 space-y-1">
+            <button onClick={() => { const name = prompt('Create new team name:'); if (name) createTeam(name); }}
+              className="w-full text-left text-xs text-slate-500 hover:text-slate-300 px-3 py-1 transition">
+              + Create Team
+            </button>
+            <button onClick={() => { const teamId = prompt('Enter team ID to join:'); if (teamId) joinTeam(teamId); }}
+              className="w-full text-left text-xs text-slate-500 hover:text-slate-300 px-3 py-1 transition">
+              + Join Team
+            </button>
+          </div>
+        )}
       </div>
 
       <button onClick={() => setCollapsed(!collapsed)}

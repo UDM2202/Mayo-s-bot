@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 const DB_PATH = path.join(__dirname, '..', '..', 'taskonbot.db');
 const db = new Database(DB_PATH);
 
-// Ensure users table has a token column
+// Ensure tables
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
@@ -19,6 +19,15 @@ db.exec(`
     team_id TEXT DEFAULT 'engineering',
     token TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS team_members (
+    user_id TEXT NOT NULL,
+    team_id TEXT NOT NULL,
+    PRIMARY KEY (user_id, team_id)
+  );
+  CREATE TABLE IF NOT EXISTS teams (
+    id TEXT PRIMARY KEY,
+    name TEXT
   );
 `);
 
@@ -38,11 +47,18 @@ router.post('/register', (req, res) => {
     const hash = simpleHash(password);
     const id = crypto.randomUUID();
     const token = crypto.randomBytes(32).toString('hex');
+    const team = team_id || 'engineering';
 
+    // Create user
     db.prepare('INSERT INTO users (id, username, password, team_id, token) VALUES (?, ?, ?, ?, ?)')
-      .run(id, username, hash, team_id || 'engineering', token);
+      .run(id, username, hash, team, token);
 
-    res.json({ success: true, user: { id, username, team_id: team_id || 'engineering', token } });
+    // Create team if new
+    db.prepare('INSERT OR IGNORE INTO teams (id, name) VALUES (?, ?)').run(team, team);
+    // Add to team_members
+    db.prepare('INSERT OR IGNORE INTO team_members (user_id, team_id) VALUES (?, ?)').run(id, team);
+
+    res.json({ success: true, user: { id, username, team_id: team, token } });
   } catch (err) {
     console.error('Register error:', err);
     res.status(500).json({ error: 'Registration failed' });
@@ -61,7 +77,7 @@ router.post('/login', (req, res) => {
     const hash = simpleHash(password);
     if (hash !== user.password) return res.status(401).json({ error: 'Invalid credentials' });
 
-    // Generate a new token on each login
+    // Generate new token
     const token = crypto.randomBytes(32).toString('hex');
     db.prepare('UPDATE users SET token = ? WHERE id = ?').run(token, user.id);
 

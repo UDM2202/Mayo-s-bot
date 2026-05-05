@@ -19,6 +19,15 @@ const app = new App({
   receiver,
 });
 
+const receiver = new ExpressReceiver({
+  signingSecret: process.env.SLACK_SIGNING_SECRET || '',
+  endpoints: '/slack/events',
+});
+
+// Debug: log if signing secret exists
+console.log('Signing secret exists:', !!process.env.SLACK_SIGNING_SECRET);
+console.log('Signing secret length:', (process.env.SLACK_SIGNING_SECRET || '').length);
+
 function ensureTeam(name) {
   const id = (name || 'engineering').toLowerCase().replace(/\s+/g, '-');
   let team = db.prepare('SELECT * FROM teams WHERE id = ?').get(id);

@@ -20,7 +20,6 @@ const receiver = new ExpressReceiver({
   endpoints: '/slack/events',
 });
 
-// Use the default token for now
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
   receiver,
@@ -42,9 +41,13 @@ app.command('/task', async ({ command, ack, respond }) => {
     return await respond(`✅ Created: ${title}`);
   }
 
-  const tasks = db.prepare('SELECT title, status FROM tasks ORDER BY created_at DESC LIMIT 10').all();
-  if (tasks.length === 0) return await respond('No tasks yet.');
-  await respond(tasks.map(t => `• ${t.title} — *${t.status}*`).join('\n'));
+  if (text === 'list' || !text) {
+    const tasks = db.prepare('SELECT title, status FROM tasks ORDER BY created_at DESC LIMIT 10').all();
+    if (tasks.length === 0) return await respond('No tasks yet.');
+    return await respond(tasks.map(t => `• ${t.title} — *${t.status}*`).join('\n'));
+  }
+
+  await respond('Try: `/task create Fix bug` or `/task list`');
 });
 
 app.command('/tasks', async ({ command, ack, respond }) => {

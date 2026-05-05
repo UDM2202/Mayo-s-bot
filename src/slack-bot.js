@@ -11,24 +11,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.join(__dirname, '..', 'taskonbot.db');
 const db = new Database(DB_PATH);
 
-// Tables
 db.exec(`CREATE TABLE IF NOT EXISTS tasks (
-  id TEXT PRIMARY KEY,
-  title TEXT,
-  status TEXT DEFAULT 'pending',
-  team_id TEXT,
-  assignee TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  id TEXT PRIMARY KEY, title TEXT, status TEXT DEFAULT 'pending',
+  team_id TEXT, assignee TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 )`);
 
 db.exec(`CREATE TABLE IF NOT EXISTS teams (
-  id TEXT PRIMARY KEY,
-  name TEXT
+  id TEXT PRIMARY KEY, name TEXT
 )`);
 
 db.exec(`CREATE TABLE IF NOT EXISTS team_members (
-  user_id TEXT NOT NULL,
-  team_id TEXT NOT NULL,
+  user_id TEXT NOT NULL, team_id TEXT NOT NULL,
   PRIMARY KEY (user_id, team_id)
 )`);
 
@@ -39,34 +32,23 @@ const receiver = new ExpressReceiver({
   stateSecret: process.env.SLACK_STATE_SECRET || 'taskonbot-secret',
   scopes: ['commands', 'chat:write'],
   installationStore: { storeInstallation: saveInstallation, fetchInstallation, deleteInstallation },
-  installerOptions: {
-    directInstall: true,
-    stateStore: createStateStore(db),
-  },
+  installerOptions: { directInstall: true, stateStore: createStateStore(db) },
   endpoints: '/slack/events',
 });
 
 const app = new App({ receiver });
 
-// Ensure a team exists AND add the Slack user to it
-function ensureTeam(teamId, teamName, slackUserName) {
-  const name = teamName || teamId;
-  db.prepare('INSERT OR IGNORE INTO teams (id, name) VALUES (?, ?)').run(teamId, name);
-
-  // Auto-join the dashboard user if they exist
+function ensureTeamAndMembership(teamId, slackUserName) {
+  // Create team if new
+  db.prepare('INSERT OR IGNORE INTO teams (id, name) VALUES (?, ?)').run(teamId, teamId);
+  
+  // Add Slack user to team_members if they have a dashboard account
   const user = db.prepare('SELECT id FROM users WHERE username = ?').get(slackUserName);
   if (user) {
     db.prepare('INSERT OR IGNORE INTO team_members (user_id, team_id) VALUES (?, ?)').run(user.id, teamId);
   }
 }
 
-// Look up the dashboard team for a given Slack username
-function getDashboardTeamForUser(slackUserName) {
-  const user = db.prepare('SELECT team_id FROM users WHERE username = ?').get(slackUserName);
-  return user ? user.team_id : null;
-}
-
-// Extract #team and @person from text
 function parseTaskText(text) {
   let title = text;
   let teamId = null;
@@ -87,54 +69,45 @@ function parseTaskText(text) {
   return { title, teamId, assignee };
 }
 
-// /taskon
-app.command('/taskon', async ({ command, ack, respond }) => {
+app.command('/taskon', async ({ ack, respond }) => {
   await ack();
   await respond('🤖 *TaskOnBot*\n`/task create [title] #team @person` – Create task\n`/tasks` – Your tasks\n`/task list` – All tasks');
 });
 
-// /task
 app.command('/task', async ({ command, ack, respond }) => {
   await ack();
-
   const text = (command.text || '').trim();
 
-  if (!text || text.toLowerCase() === 'list') {
+  if (text.toLowerCase() === 'list' || !text) {
     const tasks = db.prepare('SELECT title, status, team_id FROM tasks ORDER BY created_at DESC LIMIT 15').all();
     if (tasks.length === 0) return await respond('No tasks yet.');
     return await respond(tasks.map(t => `• ${t.title} — *${t.status}* (${t.team_id})`).join('\n'));
   }
 
-  let remaining = text;
   if (text.toLowerCase().startsWith('create ')) {
-    remaining = text.substring(7).trim();
+    const rest = text.substring(7).trim();
+    if (!rest) return await respond('Please include a title.');
+
+    const parsed = parseTaskText(rest);
+    const title = parsed.title;
+    const assignee = parsed.assignee || command.user_name;
+    
+    // Team = #tag OR Slack workspace name
+    const teamId = parsed.teamId || command.team_domain || command.team_id || 'general';
+    
+    // Create team + add user to it
+    ensureTeamAndMembership(teamId, assignee);
+
+    const id = crypto.randomUUID().substring(0, 8);
+    db.prepare('INSERT INTO tasks (id, title, assignee, team_id) VALUES (?, ?, ?, ?)')
+      .run(id, title, assignee, teamId);
+
+    return await respond(`✅ Task created: *${title}* (${teamId}) — @${assignee}`);
   }
 
-  const parsed = parseTaskText(remaining);
-  const title = parsed.title;
-  if (!title) return await respond('Please include a task title. Example: `/task create Fix login bug #engineering`');
-
-  const assignee = parsed.assignee || command.user_name;
-
-  // Determine the team for this task:
-  // 1. Explicit #team in the command
-  // 2. The dashboard team of the assignee (if found)
-  // 3. Fallback to 'general'
-  let finalTeam = parsed.teamId;
-  if (!finalTeam) {
-    const dashboardTeam = getDashboardTeamForUser(assignee);
-    finalTeam = dashboardTeam || 'general';
-  }
-  ensureTeam(finalTeam, finalTeam, assignee);
-
-  const id = crypto.randomUUID().substring(0, 8);
-  db.prepare('INSERT INTO tasks (id, title, assignee, team_id) VALUES (?, ?, ?, ?)')
-    .run(id, title, assignee, finalTeam);
-
-  await respond(`✅ Task created: *${title}* (${finalTeam}) – assigned to @${assignee}`);
+  await respond('Use: `/task create [title] #team @person` or `/task list`');
 });
 
-// /tasks
 app.command('/tasks', async ({ command, ack, respond }) => {
   await ack();
   const tasks = db.prepare('SELECT title, status, team_id FROM tasks WHERE assignee = ? LIMIT 15').all(command.user_name);

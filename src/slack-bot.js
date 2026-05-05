@@ -11,36 +11,29 @@ const db = new Database(DB_PATH);
 
 db.exec(`CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY, title TEXT, status TEXT DEFAULT 'pending',
-  team_id TEXT DEFAULT 'engineering', priority TEXT DEFAULT 'medium',
-  assignee TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-)`);
-
-db.exec(`CREATE TABLE IF NOT EXISTS teams (
-  id TEXT PRIMARY KEY, name TEXT
+  team_id TEXT DEFAULT 'engineering', assignee TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 )`);
 
 const receiver = new ExpressReceiver({
-  signingSecret: process.env.SLACK_SIGNING_SECRET || '',
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
   endpoints: '/slack/events',
 });
 
-const app = new App({ token: process.env.SLACK_BOT_TOKEN, receiver });
+// Use the default token for now
+const app = new App({
+  token: process.env.SLACK_BOT_TOKEN,
+  receiver,
+});
 
 app.command('/taskon', async ({ ack, respond }) => {
   await ack();
-  await respond('🤖 *TaskOnBot*\n`/task create [title]` — Create task\n`/tasks` — Your tasks\n`/task list` — All tasks');
+  await respond('🤖 *TaskOnBot*\n`/task create [title]` — Create task\n`/tasks` — Your tasks');
 });
 
 app.command('/task', async ({ command, ack, respond }) => {
   await ack();
   const text = (command.text || '').trim().toLowerCase();
-
-  if (text === 'list' || !text) {
-    const tasks = db.prepare('SELECT id, title, status FROM tasks ORDER BY created_at DESC LIMIT 10').all();
-    if (tasks.length === 0) return await respond('No tasks yet.');
-    return await respond(tasks.map(t => `• ${t.title} — *${t.status}*`).join('\n'));
-  }
 
   if (text.startsWith('create ')) {
     const title = text.replace('create ', '');
@@ -49,14 +42,16 @@ app.command('/task', async ({ command, ack, respond }) => {
     return await respond(`✅ Created: ${title}`);
   }
 
-  await respond('Try: `/task create Fix bug` or `/task list`');
+  const tasks = db.prepare('SELECT title, status FROM tasks ORDER BY created_at DESC LIMIT 10').all();
+  if (tasks.length === 0) return await respond('No tasks yet.');
+  await respond(tasks.map(t => `• ${t.title} — *${t.status}*`).join('\n'));
 });
 
 app.command('/tasks', async ({ command, ack, respond }) => {
   await ack();
   const tasks = db.prepare('SELECT title, status FROM tasks WHERE assignee = ? LIMIT 10').all(command.user_name);
   if (tasks.length === 0) return await respond('No tasks assigned to you.');
-  return await respond(tasks.map(t => `• ${t.title} — *${t.status}*`).join('\n'));
+  await respond(tasks.map(t => `• ${t.title} — *${t.status}*`).join('\n'));
 });
 
 export default receiver;

@@ -9,91 +9,54 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.join(__dirname, '..', 'taskonbot.db');
 const db = new Database(DB_PATH);
 
-const receiver = new ExpressReceiver({
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
-  endpoints: '/slack/events',
-});
+db.exec(`CREATE TABLE IF NOT EXISTS tasks (
+  id TEXT PRIMARY KEY, title TEXT, status TEXT DEFAULT 'pending',
+  team_id TEXT DEFAULT 'engineering', priority TEXT DEFAULT 'medium',
+  assignee TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)`);
 
-const app = new App({
-  token: process.env.SLACK_BOT_TOKEN,
-  receiver,
-});
+db.exec(`CREATE TABLE IF NOT EXISTS teams (
+  id TEXT PRIMARY KEY, name TEXT
+)`);
 
 const receiver = new ExpressReceiver({
   signingSecret: process.env.SLACK_SIGNING_SECRET || '',
   endpoints: '/slack/events',
 });
 
-// Debug: log if signing secret exists
-console.log('Signing secret exists:', !!process.env.SLACK_SIGNING_SECRET);
-console.log('Signing secret length:', (process.env.SLACK_SIGNING_SECRET || '').length);
+const app = new App({ token: process.env.SLACK_BOT_TOKEN, receiver });
 
-function ensureTeam(name) {
-  const id = (name || 'engineering').toLowerCase().replace(/\s+/g, '-');
-  let team = db.prepare('SELECT * FROM teams WHERE id = ?').get(id);
-  if (!team) {
-    db.prepare('INSERT INTO teams (id, name) VALUES (?, ?)').run(id, id);
-  }
-  return id;
-}
-
-// /taskon
 app.command('/taskon', async ({ ack, respond }) => {
   await ack();
-  await respond('🤖 *TaskOnBot*\n`/task create [title] #team` — Create task\n`/tasks` — Your tasks\n`/task list` — All tasks\n`/taskon teams` — List teams');
+  await respond('🤖 *TaskOnBot*\n`/task create [title]` — Create task\n`/tasks` — Your tasks\n`/task list` — All tasks');
 });
 
-// /taskon teams
-app.command('/taskon', async ({ command, ack, respond }) => {
-  const text = command.text.trim();
-  if (text === 'teams') {
-    const teams = db.prepare('SELECT * FROM teams').all();
-    const list = teams.map(t => `• #${t.id}`).join('\n');
-    return await respond(`📋 *Teams*\n${list}`);
-  }
-});
-
-// /task
 app.command('/task', async ({ command, ack, respond }) => {
   await ack();
-  const text = command.text.trim().toLowerCase();
+  const text = (command.text || '').trim().toLowerCase();
 
-  if (text === 'list' || text === '') {
-    const tasks = db.prepare('SELECT id, title, status, team_id FROM tasks ORDER BY created_at DESC LIMIT 10').all();
-    if (tasks.length === 0) return await respond('No tasks yet. `/task create My task`');
-    const list = tasks.map(t => `• \`${t.id}\` ${t.title} — *${t.status}* #${t.team_id}`).join('\n');
-    return await respond(list);
+  if (text === 'list' || !text) {
+    const tasks = db.prepare('SELECT id, title, status FROM tasks ORDER BY created_at DESC LIMIT 10').all();
+    if (tasks.length === 0) return await respond('No tasks yet.');
+    return await respond(tasks.map(t => `• ${t.title} — *${t.status}*`).join('\n'));
   }
 
   if (text.startsWith('create ')) {
-    let title = text.replace('create ', '');
-    let teamName = 'engineering';
-    
-    const teamMatch = title.match(/#(\S+)/);
-    if (teamMatch) {
-      teamName = teamMatch[1];
-      title = title.replace(teamMatch[0], '').trim();
-    }
-    
-    const teamId = ensureTeam(teamName);
+    const title = text.replace('create ', '');
     const id = crypto.randomUUID().slice(0, 8);
-    db.prepare(`INSERT INTO tasks (id, title, status, team_id, priority, assignee, created_at, updated_at)
-      VALUES (?, ?, 'pending', ?, 'medium', ?, datetime('now'), datetime('now'))`)
-      .run(id, title, teamId, command.user_name);
-    
-    return await respond(`✅ *${id}* ${title}\n👤 @${command.user_name} | #${teamId}`);
+    db.prepare('INSERT INTO tasks (id, title, assignee) VALUES (?, ?, ?)').run(id, title, command.user_name);
+    return await respond(`✅ Created: ${title}`);
   }
 
-  await respond('Try: `/task create Fix bug #design` or `/task list`');
+  await respond('Try: `/task create Fix bug` or `/task list`');
 });
 
-// /tasks
 app.command('/tasks', async ({ command, ack, respond }) => {
   await ack();
-  const tasks = db.prepare('SELECT id, title, status FROM tasks WHERE assignee = ? LIMIT 10').all(command.user_name);
+  const tasks = db.prepare('SELECT title, status FROM tasks WHERE assignee = ? LIMIT 10').all(command.user_name);
   if (tasks.length === 0) return await respond('No tasks assigned to you.');
-  const list = tasks.map(t => `• \`${t.id}\` ${t.title} — *${t.status}*`).join('\n');
-  await respond(list);
+  return await respond(tasks.map(t => `• ${t.title} — *${t.status}*`).join('\n'));
 });
 
 export default receiver;

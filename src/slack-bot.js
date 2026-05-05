@@ -27,9 +27,7 @@ const receiver = new ExpressReceiver({
     fetchInstallation: fetchInstallation,
     deleteInstallation: deleteInstallation,
   },
-  installerOptions: {
-    directInstall: true,
-  },
+  installerOptions: { directInstall: true },
   endpoints: '/slack/events',
 });
 
@@ -42,29 +40,65 @@ app.command('/taskon', async ({ ack, respond }) => {
 
 app.command('/task', async ({ command, ack, respond }) => {
   await ack();
-  const text = (command.text || '').trim().toLowerCase();
+  
+  try {
+    const text = (command.text || '').trim();
+    
+    console.log('TASK COMMAND:', text, 'from user:', command.user_name);
 
-  if (text.startsWith('create ')) {
-    const title = text.replace('create ', '');
-    const id = crypto.randomUUID().slice(0, 8);
-    db.prepare('INSERT INTO tasks (id, title, assignee) VALUES (?, ?, ?)').run(id, title, command.user_name);
-    return await respond(`✅ Created: ${title}`);
+    if (!text) {
+      await respond('Use: `/task create Your task title` or `/task list`');
+      return;
+    }
+
+    if (text.toLowerCase() === 'list') {
+      const tasks = db.prepare('SELECT title, status FROM tasks ORDER BY created_at DESC LIMIT 10').all();
+      if (tasks.length === 0) {
+        await respond('No tasks yet. Create one with `/task create My task`');
+        return;
+      }
+      const list = tasks.map(t => `• ${t.title} — *${t.status}*`).join('\n');
+      await respond(list);
+      return;
+    }
+
+    // Check if it starts with "create"
+    if (text.toLowerCase().startsWith('create ')) {
+      const title = text.substring(7).trim();
+      if (!title) {
+        await respond('Please include a title. Example: `/task create Fix login bug`');
+        return;
+      }
+      
+      const id = crypto.randomUUID().substring(0, 8);
+      db.prepare('INSERT INTO tasks (id, title, assignee) VALUES (?, ?, ?)').run(id, title, command.user_name);
+      await respond(`✅ Task created: *${title}*`);
+      return;
+    }
+
+    // Default
+    await respond(`Unknown command. Use \`/task create [title]\` or \`/task list\``);
+    
+  } catch (err) {
+    console.error('Task command error:', err);
+    await respond('Something went wrong. Please try again.');
   }
-
-  if (text === 'list' || !text) {
-    const tasks = db.prepare('SELECT title, status FROM tasks ORDER BY created_at DESC LIMIT 10').all();
-    if (tasks.length === 0) return await respond('No tasks yet.');
-    return await respond(tasks.map(t => `• ${t.title} — *${t.status}*`).join('\n'));
-  }
-
-  await respond('Try: `/task create Fix bug` or `/task list`');
 });
 
 app.command('/tasks', async ({ command, ack, respond }) => {
   await ack();
-  const tasks = db.prepare('SELECT title, status FROM tasks WHERE assignee = ? LIMIT 10').all(command.user_name);
-  if (tasks.length === 0) return await respond('No tasks assigned to you.');
-  await respond(tasks.map(t => `• ${t.title} — *${t.status}*`).join('\n'));
+  try {
+    const tasks = db.prepare('SELECT title, status FROM tasks WHERE assignee = ? LIMIT 10').all(command.user_name);
+    if (tasks.length === 0) {
+      await respond('No tasks assigned to you.');
+      return;
+    }
+    const list = tasks.map(t => `• ${t.title} — *${t.status}*`).join('\n');
+    await respond(list);
+  } catch (err) {
+    console.error('Tasks command error:', err);
+    await respond('Something went wrong.');
+  }
 });
 
 export default receiver;

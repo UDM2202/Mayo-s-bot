@@ -26,6 +26,12 @@ db.exec(`CREATE TABLE IF NOT EXISTS teams (
   name TEXT
 )`);
 
+db.exec(`CREATE TABLE IF NOT EXISTS team_members (
+  user_id TEXT NOT NULL,
+  team_id TEXT NOT NULL,
+  PRIMARY KEY (user_id, team_id)
+)`);
+
 const receiver = new ExpressReceiver({
   signingSecret: process.env.SLACK_SIGNING_SECRET,
   clientId: process.env.SLACK_CLIENT_ID,
@@ -42,10 +48,16 @@ const receiver = new ExpressReceiver({
 
 const app = new App({ receiver });
 
-// Ensure a team exists
-function ensureTeam(teamId, teamName) {
+// Ensure a team exists AND add the Slack user to it
+function ensureTeam(teamId, teamName, slackUserName) {
   const name = teamName || teamId;
   db.prepare('INSERT OR IGNORE INTO teams (id, name) VALUES (?, ?)').run(teamId, name);
+
+  // Auto-join the dashboard user if they exist
+  const user = db.prepare('SELECT id FROM users WHERE username = ?').get(slackUserName);
+  if (user) {
+    db.prepare('INSERT OR IGNORE INTO team_members (user_id, team_id) VALUES (?, ?)').run(user.id, teamId);
+  }
 }
 
 // Look up the dashboard team for a given Slack username
@@ -75,15 +87,13 @@ function parseTaskText(text) {
   return { title, teamId, assignee };
 }
 
-// ─────────────────────────────────
-// Slash commands
-// ─────────────────────────────────
-
+// /taskon
 app.command('/taskon', async ({ command, ack, respond }) => {
   await ack();
   await respond('🤖 *TaskOnBot*\n`/task create [title] #team @person` – Create task\n`/tasks` – Your tasks\n`/task list` – All tasks');
 });
 
+// /task
 app.command('/task', async ({ command, ack, respond }) => {
   await ack();
 
@@ -115,7 +125,7 @@ app.command('/task', async ({ command, ack, respond }) => {
     const dashboardTeam = getDashboardTeamForUser(assignee);
     finalTeam = dashboardTeam || 'general';
   }
-  ensureTeam(finalTeam, finalTeam);
+  ensureTeam(finalTeam, finalTeam, assignee);
 
   const id = crypto.randomUUID().substring(0, 8);
   db.prepare('INSERT INTO tasks (id, title, assignee, team_id) VALUES (?, ?, ?, ?)')
@@ -124,6 +134,7 @@ app.command('/task', async ({ command, ack, respond }) => {
   await respond(`✅ Task created: *${title}* (${finalTeam}) – assigned to @${assignee}`);
 });
 
+// /tasks
 app.command('/tasks', async ({ command, ack, respond }) => {
   await ack();
   const tasks = db.prepare('SELECT title, status, team_id FROM tasks WHERE assignee = ? LIMIT 15').all(command.user_name);

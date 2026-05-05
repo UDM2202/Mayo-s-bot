@@ -22,7 +22,7 @@ db.exec(`
 // Add to Slack button
 router.get('/slack/install', (req, res) => {
   const clientId = process.env.SLACK_CLIENT_ID;
-  const redirectUri = `https://uncheck-safari-unearth.ngrok-free.dev/api/slack/oauth/callback`;
+  const redirectUri = `https://mayo-s-bot-production.up.railway.app/api/slack/oauth/callback`;
   
   if (!clientId) return res.status(500).send('Missing SLACK_CLIENT_ID');
   
@@ -44,7 +44,7 @@ router.get('/slack/oauth/callback', async (req, res) => {
         client_id: process.env.SLACK_CLIENT_ID,
         client_secret: process.env.SLACK_CLIENT_SECRET,
         code: code,
-        redirect_uri: `https://uncheck-safari-unearth.ngrok-free.dev/api/slack/oauth/callback`,
+        redirect_uri: `https://mayo-s-bot-production.up.railway.app/api/slack/oauth/callback`,
       }),
     });
     

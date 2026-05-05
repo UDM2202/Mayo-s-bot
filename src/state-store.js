@@ -9,12 +9,12 @@ export function createStateStore(db) {
   `);
 
   return {
-    generateState: async () => {
+    generateStateParam: async (installUrlOptions, date) => {
       const state = crypto.randomBytes(16).toString('hex');
       db.prepare('INSERT INTO oauth_states (state, created_at) VALUES (?, ?)').run(state, Date.now());
       return state;
     },
-    verifyState: async (state) => {
+    verifyStateParam: async (date, state) => {
       const row = db.prepare('SELECT state, created_at FROM oauth_states WHERE state = ?').get(state);
       if (!row) throw new Error('State not found');
       if (Date.now() - row.created_at > 10 * 60 * 1000) {
@@ -22,7 +22,7 @@ export function createStateStore(db) {
         throw new Error('State expired');
       }
       db.prepare('DELETE FROM oauth_states WHERE state = ?').run(state);
-      return state;
+      return row.state;
     },
   };
 }

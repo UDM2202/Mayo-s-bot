@@ -12,15 +12,21 @@ export default function App() {
     setPaletteOpen,
     user,
     loadUser,
-    logout
+    startPolling,
+    stopPolling,
   } = useStore();
-  
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // On mount, try to load existing user from localStorage
   useEffect(() => {
-    loadUser();
+    loadUser();                // try to load existing session
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      startPolling();
+    }
+    return () => stopPolling();
+  }, [user]);
 
   const handleKeyDown = useCallback((e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -29,7 +35,6 @@ export default function App() {
     }
   }, [isPaletteOpen, setPaletteOpen]);
 
-  // If no user, show login page
   if (!user) return <Login onLogin={() => loadUser()} />;
 
   return (

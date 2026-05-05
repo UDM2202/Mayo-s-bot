@@ -3,10 +3,11 @@ import { create } from 'zustand';
 const API = '/api';
 
 const useStore = create((set, get) => ({
-  // ── User & View ──
+  // ── User & Auth ──
   user: null,
-  activeView: 'board',
+  token: null,
   activeTeam: 'engineering',
+  activeView: 'board',
   isPaletteOpen: false,
   modalOpen: false,
   editingTask: null,
@@ -14,11 +15,14 @@ const useStore = create((set, get) => ({
   // ── Tasks ──
   tasks: [],
   personalTasks: [],
-  showMyTasks: false,       // toggle for personal task view
+  showMyTasks: false,
   loading: false,
 
   // ── Teams ──
   teams: [],
+
+  // ── Polling ──
+  pollingInterval: null,
 
   // ── Actions ──
   setActiveView: (view) => set({ activeView: view }),
@@ -26,45 +30,43 @@ const useStore = create((set, get) => ({
   openModal: (task = null) => set({ modalOpen: true, editingTask: task }),
   closeModal: () => set({ modalOpen: false, editingTask: null }),
 
-  setActiveTeam: (team) => {
-    set({ activeTeam: team });
-    if (!get().showMyTasks) get().loadTasks();
-  },
-
-  // Load user from localStorage → set team → load everything
   loadUser: () => {
     const saved = localStorage.getItem('user');
     if (saved) {
       const user = JSON.parse(saved);
-      set({ user, activeTeam: user.team_id || 'engineering' });
+      set({ user, token: user.token, activeTeam: user.team_id || 'engineering' });
       get().fetchTeams();
       get().loadTasks();
-      get().loadMyTasks();
+      if (get().showMyTasks) get().loadMyTasks();
     }
   },
 
   logout: () => {
     localStorage.removeItem('user');
-    set({ user: null, tasks: [], personalTasks: [], teams: [], activeTeam: 'engineering' });
+    get().stopPolling();
+    set({ user: null, token: null, tasks: [], personalTasks: [], teams: [], activeTeam: 'engineering', showMyTasks: false });
   },
 
-  // Fetch all teams
+  // ── Auth header ──
+  getHeaders: () => {
+    const { token } = get();
+    return token ? { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } : { 'Content-Type': 'application/json' };
+  },
+
+  // ── Teams ──
   fetchTeams: async () => {
     try {
-      const res = await fetch('/api/teams');
+      const res = await fetch('/api/teams', { headers: get().getHeaders() });
       const data = await res.json();
       set({ teams: data });
-    } catch (err) {
-      console.error('fetchTeams error:', err);
-    }
+    } catch (err) { /* ignore */ }
   },
 
-  // Load tasks for the active team
+  // ── Team tasks ──
   loadTasks: async () => {
-    const team = get().activeTeam;
     set({ loading: true });
     try {
-      const res = await fetch(`${API}/tasks?team=${team}`);
+      const res = await fetch(`${API}/tasks`, { headers: get().getHeaders() });
       const data = await res.json();
       set({ tasks: data, loading: false });
     } catch (err) {
@@ -73,73 +75,81 @@ const useStore = create((set, get) => ({
     }
   },
 
-  // Load tasks assigned to the current user
+  // ── My Tasks ──
   loadMyTasks: async () => {
-    const user = get().user;
-    if (!user) return;
+    // "My Tasks" = team tasks where assignee == current user
     try {
-      const res = await fetch(`${API}/tasks?assignee=${user.username}`);
-      const data = await res.json();
-      set({ personalTasks: data });
-    } catch (err) {
-      console.error('loadMyTasks error:', err);
-    }
+      const res = await fetch(`${API}/tasks`, { headers: get().getHeaders() });   // get all team tasks
+      const all = await res.json();
+      const myTasks = all.filter(t => t.assignee === get().user?.username);
+      set({ personalTasks: myTasks });
+    } catch (err) { /* ignore */ }
   },
 
-  // Toggle between team view and personal view
   toggleMyTasks: () => {
-    const show = !get().showMyTasks;
-    set({ showMyTasks: show });
-    if (show) get().loadMyTasks();
+    const next = !get().showMyTasks;
+    set({ showMyTasks: next });
+    if (next) get().loadMyTasks();
     else get().loadTasks();
   },
 
-  // Add task – force the team to the active team
+  // ── CRUD ──
   addTask: async (taskData) => {
-    const team = get().activeTeam;
     try {
       await fetch(`${API}/tasks`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...taskData, team_id: team }),
+        headers: get().getHeaders(),
+        body: JSON.stringify(taskData),
       });
       get().loadTasks();
-      get().fetchTeams();   // in case a new team was created
-    } catch (err) {
-      console.error('addTask error:', err);
-    }
+      get().fetchTeams();
+    } catch (err) { console.error(err); }
   },
 
   updateTask: async (id, updates) => {
     try {
       const res = await fetch(`${API}/tasks/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: get().getHeaders(),
         body: JSON.stringify(updates),
       });
       const updated = await res.json();
       set((state) => ({
-        tasks: state.tasks.map(t => t.id === id ? updated : t),
-        personalTasks: state.personalTasks.map(t => t.id === id ? updated : t),
+        tasks: state.tasks.map(t => (t.id === id ? updated : t)),
+        personalTasks: state.personalTasks.map(t => (t.id === id ? updated : t)),
       }));
-    } catch (err) {
-      console.error('updateTask error:', err);
-    }
+    } catch (err) { console.error(err); }
   },
 
   deleteTask: async (id) => {
     try {
-      await fetch(`${API}/tasks/${id}`, { method: 'DELETE' });
+      await fetch(`${API}/tasks/${id}`, { method: 'DELETE', headers: get().getHeaders() });
       set((state) => ({
         tasks: state.tasks.filter(t => t.id !== id),
         personalTasks: state.personalTasks.filter(t => t.id !== id),
       }));
-    } catch (err) {
-      console.error('deleteTask error:', err);
-    }
+    } catch (err) { console.error(err); }
   },
 
   moveTask: (id, newStatus) => get().updateTask(id, { status: newStatus }),
+
+  // ── Polling ──
+  startPolling: () => {
+    get().stopPolling();
+    const id = setInterval(() => {
+      if (get().user) {
+        get().loadTasks();
+        if (get().showMyTasks) get().loadMyTasks();
+      }
+    }, 3000);
+    set({ pollingInterval: id });
+  },
+
+  stopPolling: () => {
+    const { pollingInterval } = get();
+    if (pollingInterval) clearInterval(pollingInterval);
+    set({ pollingInterval: null });
+  },
 }));
 
 export default useStore;

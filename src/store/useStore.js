@@ -3,20 +3,19 @@ import { create } from 'zustand';
 const API = '/api';
 
 const useStore = create((set, get) => ({
-  // state
   user: null,
   token: null,
   activeTeam: 'engineering',
   activeView: 'board',
-  isPaletteOpen: false,
-  modalOpen: false,
-  editingTask: null,
   tasks: [],
   personalTasks: [],
   showMyTasks: false,
   loading: false,
   teams: [],
   pollingInterval: null,
+  modalOpen: false,
+  editingTask: null,
+  isPaletteOpen: false,
 
   setActiveView: (view) => set({ activeView: view }),
   setPaletteOpen: (val) => set({ isPaletteOpen: val }),
@@ -56,14 +55,8 @@ const useStore = create((set, get) => ({
       const res = await fetch('/api/teams', { headers: get().getHeaders() });
       if (!res.ok) return;
       const data = await res.json();
-      if (!Array.isArray(data)) return;
-      set({ teams: data });
-      const current = get().activeTeam;
-      if (data.length > 0 && !data.find(t => t.id === current)) {
-        set({ activeTeam: data[0].id });
-        if (!get().showMyTasks) get().loadTasks(data[0].id);
-      }
-    } catch (err) { /* ignore */ }
+      if (Array.isArray(data)) set({ teams: data });
+    } catch (err) {}
   },
 
   loadTasks: async (teamId) => {
@@ -73,13 +66,9 @@ const useStore = create((set, get) => ({
       const res = await fetch(`${API}/tasks?team=${team}`, { headers: get().getHeaders() });
       if (!res.ok) { set({ loading: false }); return; }
       const data = await res.json();
-      if (Array.isArray(data)) {
-        set({ tasks: data, loading: false });
-      } else {
-        set({ loading: false });
-      }
+      if (Array.isArray(data)) set({ tasks: data, loading: false });
+      else set({ loading: false });
     } catch (err) {
-      console.error('loadTasks error:', err);
       set({ loading: false });
     }
   },
@@ -87,19 +76,16 @@ const useStore = create((set, get) => ({
   loadMyTasks: async () => {
     const user = get().user;
     if (!user) return;
-    try {
-      const teams = get().teams;
-      if (teams.length === 0) return;
-      const allTasks = [];
-      for (const t of teams) {
-        const res = await fetch(`${API}/tasks?team=${t.id}`, { headers: get().getHeaders() });
-        if (res.ok) {
-          const teamTasks = await res.json();
-          if (Array.isArray(teamTasks)) allTasks.push(...teamTasks);
-        }
+    const teams = get().teams;
+    const allTasks = [];
+    for (const t of teams) {
+      const res = await fetch(`${API}/tasks?team=${t.id}`, { headers: get().getHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) allTasks.push(...data);
       }
-      set({ personalTasks: allTasks.filter(task => task.assignee === user.username) });
-    } catch (err) { /* ignore */ }
+    }
+    set({ personalTasks: allTasks.filter(task => task.assignee === user.username) });
   },
 
   toggleMyTasks: () => {
@@ -110,67 +96,64 @@ const useStore = create((set, get) => ({
   },
 
   addTask: async (taskData) => {
-    try {
-      await fetch(`${API}/tasks`, {
-        method: 'POST',
-        headers: get().getHeaders(),
-        body: JSON.stringify(taskData),
-      });
-      get().loadTasks();
-      get().fetchTeams();
-    } catch (err) { /* ignore */ }
+    await fetch(`${API}/tasks`, {
+      method: 'POST',
+      headers: get().getHeaders(),
+      body: JSON.stringify(taskData),
+    });
+    get().loadTasks();
+    get().fetchTeams();
   },
 
   updateTask: async (id, updates) => {
-    try {
-      const res = await fetch(`${API}/tasks/${id}`, {
-        method: 'PUT',
-        headers: get().getHeaders(),
-        body: JSON.stringify(updates),
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        set((state) => ({
-          tasks: state.tasks.map(t => (t.id === id ? updated : t)),
-          personalTasks: state.personalTasks.map(t => (t.id === id ? updated : t)),
-        }));
-      }
-    } catch (err) { /* ignore */ }
+    const res = await fetch(`${API}/tasks/${id}`, {
+      method: 'PUT',
+      headers: get().getHeaders(),
+      body: JSON.stringify(updates),
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      set((state) => ({
+        tasks: state.tasks.map(t => t.id === id ? updated : t),
+        personalTasks: state.personalTasks.map(t => t.id === id ? updated : t),
+      }));
+    }
   },
 
   deleteTask: async (id) => {
-    try {
-      await fetch(`${API}/tasks/${id}`, { method: 'DELETE', headers: get().getHeaders() });
-      set((state) => ({
-        tasks: state.tasks.filter(t => t.id !== id),
-        personalTasks: state.personalTasks.filter(t => t.id !== id),
-      }));
-    } catch (err) { /* ignore */ }
+    await fetch(`${API}/tasks/${id}`, { method: 'DELETE', headers: get().getHeaders() });
+    set((state) => ({
+      tasks: state.tasks.filter(t => t.id !== id),
+      personalTasks: state.personalTasks.filter(t => t.id !== id),
+    }));
   },
 
   moveTask: (id, newStatus) => get().updateTask(id, { status: newStatus }),
 
   joinTeam: async (teamId) => {
-    try {
-      await fetch('/api/teams/join', { method: 'POST', headers: get().getHeaders(), body: JSON.stringify({ team_id: teamId }) });
-      get().fetchTeams();
-    } catch (err) { /* ignore */ }
+    await fetch('/api/teams/join', {
+      method: 'POST',
+      headers: get().getHeaders(),
+      body: JSON.stringify({ team_id: teamId }),
+    });
+    get().fetchTeams();
   },
-
   leaveTeam: async (teamId) => {
-    try {
-      await fetch('/api/teams/leave', { method: 'POST', headers: get().getHeaders(), body: JSON.stringify({ team_id: teamId }) });
-      get().fetchTeams();
-    } catch (err) { /* ignore */ }
+    await fetch('/api/teams/leave', {
+      method: 'POST',
+      headers: get().getHeaders(),
+      body: JSON.stringify({ team_id: teamId }),
+    });
+    get().fetchTeams();
   },
-
   createTeam: async (name) => {
-    try {
-      await fetch('/api/teams', { method: 'POST', headers: get().getHeaders(), body: JSON.stringify({ name }) });
-      get().fetchTeams();
-    } catch (err) { /* ignore */ }
+    await fetch('/api/teams', {
+      method: 'POST',
+      headers: get().getHeaders(),
+      body: JSON.stringify({ name }),
+    });
+    get().fetchTeams();
   },
-
   setActiveTeam: (teamId) => {
     set({ activeTeam: teamId });
     if (!get().showMyTasks) get().loadTasks(teamId);
@@ -187,7 +170,6 @@ const useStore = create((set, get) => ({
     }, 3000);
     set({ pollingInterval: id });
   },
-
   stopPolling: () => {
     const { pollingInterval } = get();
     if (pollingInterval) clearInterval(pollingInterval);

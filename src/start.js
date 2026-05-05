@@ -14,26 +14,25 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 app.use(cors());
 app.use(express.json());
 
-// ── 1. Serve static files FIRST ──
+// 1. Static files and SPA fallback (before Slack routes)
 app.use(express.static(path.join(__dirname, '..', 'dist')));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// ── 2. API routes ──
+// 2. API routes
 app.use('/api/tasks', tasksRouter);
 app.use('/api/teams', teamsRouter);
 app.use('/api/auth', authRouter);
 
-// ── 3. Slack bot (only for /slack paths) ──
+// 3. Slack bot (only /slack paths)
 app.use(slackReceiver.router);
 
-// ── 4. Health check ──
+// 4. Health check
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
-// ── 5. SPA fallback (non-API, non-slack routes → index.html) ──
-app.get('*', (req, res) => {
-  if (!req.path.startsWith('/api') && !req.path.startsWith('/slack')) {
-    res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
-  }
+// 5. Catch-all to index.html for non-API routes
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/slack')) return next();
+  res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
 });
 
 app.listen(port, () => console.log(`✅ TaskOnBot running on port ${port}`));

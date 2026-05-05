@@ -22,11 +22,19 @@ db.exec(`
 // Add to Slack button
 router.get('/slack/install', (req, res) => {
   const clientId = process.env.SLACK_CLIENT_ID;
+  
+  console.log('SLACK_CLIENT_ID:', clientId ? 'FOUND' : 'MISSING');
+  
+  if (!clientId) {
+    return res.status(500).json({ 
+      error: 'Missing SLACK_CLIENT_ID. Set it in Railway Variables.',
+      env: Object.keys(process.env).filter(k => k.includes('SLACK')).join(', ')
+    });
+  }
+  
   const redirectUri = `https://mayo-s-bot-production.up.railway.app/api/slack/oauth/callback`;
+  const scopes = ['commands', 'chat:write'].join(',');
   
-  if (!clientId) return res.status(500).send('Missing SLACK_CLIENT_ID');
-  
-  const scopes = ['commands','chat:write','chat:read','channels:history'].join(',');
   res.redirect(`https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}`);
 });
 

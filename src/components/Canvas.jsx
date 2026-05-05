@@ -141,12 +141,10 @@ function InsightsView({ tasks }) {
 }
 
 export default function Canvas({ onMenuClick }) {
-  const { tasks, moveTask, activeTeam, activeView, openModal } = useStore();
 
-  const filteredTasks = useMemo(() =>
-    tasks.filter(t => t.team_id === activeTeam),
-    [tasks, activeTeam]
-  );
+ const { tasks, personalTasks, showMyTasks, moveTask, activeTeam, activeView, openModal } = useStore();
+
+const displayTasks = showMyTasks ? personalTasks : tasks.filter(t => t.team_id === activeTeam);
 
   const viewComponents = { board: BoardView, list: ListView, timeline: TimelineView, insights: InsightsView };
   const ActiveView = viewComponents[activeView] || BoardView;
@@ -164,7 +162,7 @@ export default function Canvas({ onMenuClick }) {
             {activeView === 'insights' ? `${activeTeam} Insights` : activeTeam}
           </h1>
           <span className="text-xs text-slate-500 bg-slate-800 px-2 py-1 rounded-md hidden sm:inline">
-            {filteredTasks.length} tasks
+            {displayTasks.length} tasks
           </span>
         </div>
         <div className="flex items-center gap-2 md:gap-3">
@@ -192,7 +190,7 @@ export default function Canvas({ onMenuClick }) {
 
       {/* CONTENT */}
       <div className="flex-1 overflow-auto px-4 md:px-8 pb-8">
-        <ActiveView tasks={filteredTasks} moveTask={moveTask} openModal={openModal} />
+        <ActiveView tasks={displayTasks} moveTask={moveTask} openModal={openModal} />
       </div>
     </main>
   );

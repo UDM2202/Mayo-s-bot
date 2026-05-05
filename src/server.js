@@ -2,12 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import 'dotenv/config';
-
-import tasksRouter from './api/tasks.js';
-import teamsRouter from './api/teams.js';
-import authRouter from './api/auth.js';
-import slackOauthRouter from './api/slack-oauth.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -15,18 +9,21 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Middleware
-app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000'],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type'],
-}));
+app.use(cors());
 app.use(express.json());
 
-// API Routes
-app.use('/api/tasks', tasksRouter);
-app.use('/api/teams', teamsRouter);
-app.use('/api/auth', authRouter);
-app.use('/api', slackOauthRouter);
+// Debug route - shows what env vars are available
+app.get('/api/debug', (req, res) => {
+  res.json({
+    has_client_id: !!process.env.SLACK_CLIENT_ID,
+    has_client_secret: !!process.env.SLACK_CLIENT_SECRET,
+    has_bot_token: !!process.env.SLACK_BOT_TOKEN,
+    has_app_token: !!process.env.SLACK_APP_TOKEN,
+    has_signing_secret: !!process.env.SLACK_SIGNING_SECRET,
+    port: process.env.PORT,
+    node_env: process.env.NODE_ENV,
+  });
+});
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -37,18 +34,12 @@ app.get('/api/health', (req, res) => {
 app.use(express.static(path.join(__dirname, '..', 'dist')));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// Catch-all: serve index.html for all non-API routes
+// Catch-all
 app.get('*', (req, res) => {
-  if (!req.path.startsWith('/api')) {
-    res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
-  }
+  res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
 });
 
 app.listen(port, () => {
-  console.log(`
-🤖 TaskOnBot API Server
-━━━━━━━━━━━━━━━━━━━━━━
-🚀 Running on: http://localhost:${port}
-━━━━━━━━━━━━━━━━━━━━━━
-  `);
+  console.log(`Server running on port ${port}`);
+  console.log('SLACK_CLIENT_ID exists:', !!process.env.SLACK_CLIENT_ID);
 });

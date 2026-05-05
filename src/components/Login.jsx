@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import useStore from '../store/useStore';
 
 export default function Login({ onLogin }) {
   const [isRegister, setIsRegister] = useState(false);
@@ -31,8 +32,9 @@ export default function Login({ onLogin }) {
         throw new Error(data.error || 'Something went wrong');
       }
       
+      // Save to localStorage and tell the store
       localStorage.setItem('user', JSON.stringify(data.user));
-      onLogin(data.user);
+      onLogin(); // This now calls loadUser() which sets user + activeTeam
     } catch (err) {
       console.error('Auth error:', err);
       setError(err.message || 'Connection failed');
@@ -43,6 +45,7 @@ export default function Login({ onLogin }) {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-surface-1">
+      {/* ... rest of the JSX is unchanged ... */}
       <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-8 w-full max-w-md">
         <div className="text-center mb-6">
           <span className="text-3xl">⬡</span>

@@ -7,19 +7,20 @@ import Login from './components/Login';
 import useStore from './store/useStore';
 
 export default function App() {
-  const { isPaletteOpen, setPaletteOpen, startPolling, stopPolling } = useStore();
+  const {
+    isPaletteOpen,
+    setPaletteOpen,
+    user,
+    loadUser,
+    logout
+  } = useStore();
+  
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [user, setUser] = useState(null);
 
+  // On mount, try to load existing user from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('user');
-    if (saved) setUser(JSON.parse(saved));
+    loadUser();
   }, []);
-
-  useEffect(() => {
-    if (user) startPolling();
-    return () => stopPolling();
-  }, [user]);
 
   const handleKeyDown = useCallback((e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -28,7 +29,8 @@ export default function App() {
     }
   }, [isPaletteOpen, setPaletteOpen]);
 
-  if (!user) return <Login onLogin={setUser} />;
+  // If no user, show login page
+  if (!user) return <Login onLogin={() => loadUser()} />;
 
   return (
     <div className="flex h-screen bg-surface-1 text-slate-200 overflow-hidden" onKeyDown={handleKeyDown} tabIndex={-1}>

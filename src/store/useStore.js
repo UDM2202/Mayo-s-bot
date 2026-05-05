@@ -3,7 +3,7 @@ import { create } from 'zustand';
 const API = '/api';
 
 const useStore = create((set, get) => ({
-  // ── User & Auth ──
+  // state
   user: null,
   token: null,
   activeTeam: 'engineering',
@@ -11,33 +11,37 @@ const useStore = create((set, get) => ({
   isPaletteOpen: false,
   modalOpen: false,
   editingTask: null,
-
-  // ── Tasks ──
   tasks: [],
   personalTasks: [],
   showMyTasks: false,
   loading: false,
-
-  // ── Teams ──
   teams: [],
-
-  // ── Polling ──
   pollingInterval: null,
 
-  // ── Actions ──
   setActiveView: (view) => set({ activeView: view }),
   setPaletteOpen: (val) => set({ isPaletteOpen: val }),
   openModal: (task = null) => set({ modalOpen: true, editingTask: task }),
   closeModal: () => set({ modalOpen: false, editingTask: null }),
 
+  getHeaders: () => {
+    const { token } = get();
+    return token
+      ? { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+      : { 'Content-Type': 'application/json' };
+  },
+
   loadUser: () => {
     const saved = localStorage.getItem('user');
     if (saved) {
-      const user = JSON.parse(saved);
-      set({ user, token: user.token, activeTeam: user.team_id || 'engineering' });
-      get().fetchTeams();
-      get().loadTasks();
-      if (get().showMyTasks) get().loadMyTasks();
+      try {
+        const user = JSON.parse(saved);
+        set({ user, token: user.token, activeTeam: user.team_id || 'engineering' });
+        get().fetchTeams();
+        get().loadTasks();
+      } catch (e) {
+        localStorage.removeItem('user');
+        set({ user: null, token: null });
+      }
     }
   },
 
@@ -47,22 +51,19 @@ const useStore = create((set, get) => ({
     set({ user: null, token: null, tasks: [], personalTasks: [], teams: [], activeTeam: 'engineering', showMyTasks: false });
   },
 
-  getHeaders: () => {
-    const { token } = get();
-    return token ? { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } : { 'Content-Type': 'application/json' };
-  },
-
   fetchTeams: async () => {
     try {
       const res = await fetch('/api/teams', { headers: get().getHeaders() });
+      if (!res.ok) return;
       const data = await res.json();
+      if (!Array.isArray(data)) return;
       set({ teams: data });
       const current = get().activeTeam;
       if (data.length > 0 && !data.find(t => t.id === current)) {
         set({ activeTeam: data[0].id });
         if (!get().showMyTasks) get().loadTasks(data[0].id);
       }
-    } catch (err) { console.error('fetchTeams error:', err); }
+    } catch (err) { /* ignore */ }
   },
 
   loadTasks: async (teamId) => {
@@ -70,8 +71,13 @@ const useStore = create((set, get) => ({
     set({ loading: true });
     try {
       const res = await fetch(`${API}/tasks?team=${team}`, { headers: get().getHeaders() });
+      if (!res.ok) { set({ loading: false }); return; }
       const data = await res.json();
-      set({ tasks: data, loading: false });
+      if (Array.isArray(data)) {
+        set({ tasks: data, loading: false });
+      } else {
+        set({ loading: false });
+      }
     } catch (err) {
       console.error('loadTasks error:', err);
       set({ loading: false });
@@ -81,20 +87,19 @@ const useStore = create((set, get) => ({
   loadMyTasks: async () => {
     const user = get().user;
     if (!user) return;
-    // My Tasks = all team tasks where assignee == current user
     try {
-      // We'll fetch all teams' tasks? Actually only active team? My Tasks should be across all teams.
-      // Simpler: fetch all tasks for all teams the user belongs to, then filter.
       const teams = get().teams;
       if (teams.length === 0) return;
       const allTasks = [];
       for (const t of teams) {
         const res = await fetch(`${API}/tasks?team=${t.id}`, { headers: get().getHeaders() });
-        const teamTasks = await res.json();
-        allTasks.push(...teamTasks);
+        if (res.ok) {
+          const teamTasks = await res.json();
+          if (Array.isArray(teamTasks)) allTasks.push(...teamTasks);
+        }
       }
       set({ personalTasks: allTasks.filter(task => task.assignee === user.username) });
-    } catch (err) { console.error('loadMyTasks error:', err); }
+    } catch (err) { /* ignore */ }
   },
 
   toggleMyTasks: () => {
@@ -113,7 +118,7 @@ const useStore = create((set, get) => ({
       });
       get().loadTasks();
       get().fetchTeams();
-    } catch (err) { console.error(err); }
+    } catch (err) { /* ignore */ }
   },
 
   updateTask: async (id, updates) => {
@@ -123,12 +128,14 @@ const useStore = create((set, get) => ({
         headers: get().getHeaders(),
         body: JSON.stringify(updates),
       });
-      const updated = await res.json();
-      set((state) => ({
-        tasks: state.tasks.map(t => (t.id === id ? updated : t)),
-        personalTasks: state.personalTasks.map(t => (t.id === id ? updated : t)),
-      }));
-    } catch (err) { console.error(err); }
+      if (res.ok) {
+        const updated = await res.json();
+        set((state) => ({
+          tasks: state.tasks.map(t => (t.id === id ? updated : t)),
+          personalTasks: state.personalTasks.map(t => (t.id === id ? updated : t)),
+        }));
+      }
+    } catch (err) { /* ignore */ }
   },
 
   deleteTask: async (id) => {
@@ -138,42 +145,30 @@ const useStore = create((set, get) => ({
         tasks: state.tasks.filter(t => t.id !== id),
         personalTasks: state.personalTasks.filter(t => t.id !== id),
       }));
-    } catch (err) { console.error(err); }
+    } catch (err) { /* ignore */ }
   },
 
   moveTask: (id, newStatus) => get().updateTask(id, { status: newStatus }),
 
   joinTeam: async (teamId) => {
     try {
-      await fetch('/api/teams/join', {
-        method: 'POST',
-        headers: get().getHeaders(),
-        body: JSON.stringify({ team_id: teamId }),
-      });
+      await fetch('/api/teams/join', { method: 'POST', headers: get().getHeaders(), body: JSON.stringify({ team_id: teamId }) });
       get().fetchTeams();
-    } catch (err) { console.error(err); }
+    } catch (err) { /* ignore */ }
   },
 
   leaveTeam: async (teamId) => {
     try {
-      await fetch('/api/teams/leave', {
-        method: 'POST',
-        headers: get().getHeaders(),
-        body: JSON.stringify({ team_id: teamId }),
-      });
+      await fetch('/api/teams/leave', { method: 'POST', headers: get().getHeaders(), body: JSON.stringify({ team_id: teamId }) });
       get().fetchTeams();
-    } catch (err) { console.error(err); }
+    } catch (err) { /* ignore */ }
   },
 
   createTeam: async (name) => {
     try {
-      await fetch('/api/teams', {
-        method: 'POST',
-        headers: get().getHeaders(),
-        body: JSON.stringify({ name }),
-      });
+      await fetch('/api/teams', { method: 'POST', headers: get().getHeaders(), body: JSON.stringify({ name }) });
       get().fetchTeams();
-    } catch (err) { console.error(err); }
+    } catch (err) { /* ignore */ }
   },
 
   setActiveTeam: (teamId) => {

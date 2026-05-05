@@ -4,6 +4,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+import { saveInstallation, fetchInstallation, deleteInstallation } from './token-store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.join(__dirname, '..', 'taskonbot.db');
@@ -17,17 +18,26 @@ db.exec(`CREATE TABLE IF NOT EXISTS tasks (
 
 const receiver = new ExpressReceiver({
   signingSecret: process.env.SLACK_SIGNING_SECRET,
+  clientId: process.env.SLACK_CLIENT_ID,
+  clientSecret: process.env.SLACK_CLIENT_SECRET,
+  stateSecret: process.env.SLACK_STATE_SECRET || 'taskonbot-secret',
+  scopes: ['commands', 'chat:write'],
+  installationStore: {
+    storeInstallation: saveInstallation,
+    fetchInstallation: fetchInstallation,
+    deleteInstallation: deleteInstallation,
+  },
+  installerOptions: {
+    directInstall: true,
+  },
   endpoints: '/slack/events',
 });
 
-const app = new App({
-  token: process.env.SLACK_BOT_TOKEN,
-  receiver,
-});
+const app = new App({ receiver });
 
 app.command('/taskon', async ({ ack, respond }) => {
   await ack();
-  await respond('🤖 *TaskOnBot*\n`/task create [title]` — Create task\n`/tasks` — Your tasks');
+  await respond('🤖 *TaskOnBot*\n`/task create [title]` — Create task\n`/tasks` — Your tasks\n`/task list` — All tasks');
 });
 
 app.command('/task', async ({ command, ack, respond }) => {

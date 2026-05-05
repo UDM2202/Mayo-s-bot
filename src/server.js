@@ -17,6 +17,27 @@ const __dirname = path.dirname(__filename);
 app.use(cors());
 app.use(express.json());
 
+// Slack events endpoint
+app.post('/slack/events', (req, res) => {
+  if (req.body.type === 'url_verification') {
+    return res.json({ challenge: req.body.challenge });
+  }
+  res.sendStatus(200);
+});
+
+// Slack URL verification
+app.post('/slack/events', (req, res) => {
+  const { type, challenge } = req.body;
+  
+  // URL verification challenge
+  if (type === 'url_verification') {
+    return res.json({ challenge });
+  }
+  
+  // Handle other events
+  res.sendStatus(200);
+});
+
 // API Routes
 app.use('/api/tasks', tasksRouter);
 app.use('/api/teams', teamsRouter);

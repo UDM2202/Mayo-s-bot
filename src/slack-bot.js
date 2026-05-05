@@ -39,10 +39,7 @@ const receiver = new ExpressReceiver({
 const app = new App({ receiver });
 
 function ensureTeamAndMembership(teamId, slackUserName) {
-  // Create team if new
   db.prepare('INSERT OR IGNORE INTO teams (id, name) VALUES (?, ?)').run(teamId, teamId);
-  
-  // Add Slack user to team_members if they have a dashboard account
   const user = db.prepare('SELECT id FROM users WHERE username = ?').get(slackUserName);
   if (user) {
     db.prepare('INSERT OR IGNORE INTO team_members (user_id, team_id) VALUES (?, ?)').run(user.id, teamId);
@@ -54,16 +51,27 @@ function parseTaskText(text) {
   let teamId = null;
   let assignee = null;
 
+  // Handle Slack mention format <@U12345|username> → extract username
+  const slackMention = title.match(/<@U\w+\|(\w+)>/);
+  if (slackMention) {
+    assignee = slackMention[1];
+    title = title.replace(slackMention[0], '').trim();
+  }
+
+  // Also handle plain @username
+  if (!assignee) {
+    const personMatch = title.match(/@([\w-]+)/);
+    if (personMatch) {
+      assignee = personMatch[1];
+      title = title.replace(personMatch[0], '').trim();
+    }
+  }
+
+  // Extract #team
   const teamMatch = title.match(/#([\w-]+)/);
   if (teamMatch) {
     teamId = teamMatch[1].toLowerCase();
     title = title.replace(teamMatch[0], '').trim();
-  }
-
-  const personMatch = title.match(/@(\w+)/);
-  if (personMatch) {
-    assignee = personMatch[1];
-    title = title.replace(personMatch[0], '').trim();
   }
 
   return { title, teamId, assignee };
@@ -74,7 +82,7 @@ app.command('/taskon', async ({ ack, respond }) => {
   await respond('🤖 *TaskOnBot*\n`/task create [title] #team @person` – Create task\n`/tasks` – Your tasks\n`/task list` – All tasks');
 });
 
-app.command('/task', async ({ command, ack, respond }) => {
+app.command('/task', async ({ command, ack, respond, client }) => {
   await ack();
   const text = (command.text || '').trim();
 
@@ -90,19 +98,19 @@ app.command('/task', async ({ command, ack, respond }) => {
 
     const parsed = parseTaskText(rest);
     const title = parsed.title;
-    const assignee = parsed.assignee || command.user_name;
     
-    // Team = #tag OR Slack workspace name
+    // Resolve assignee name from Slack mention or use command user
+    let assignee = parsed.assignee || command.user_name;
+
     const teamId = parsed.teamId || command.team_domain || command.team_id || 'general';
-    
-    // Create team + add user to it
+
     ensureTeamAndMembership(teamId, assignee);
 
     const id = crypto.randomUUID().substring(0, 8);
     db.prepare('INSERT INTO tasks (id, title, assignee, team_id) VALUES (?, ?, ?, ?)')
       .run(id, title, assignee, teamId);
 
-    return await respond(`✅ Task created: *${title}* (${teamId}) — @${assignee}`);
+    return await respond(`✅ Task created: *${title}* (${teamId}) — assigned to @${assignee}`);
   }
 
   await respond('Use: `/task create [title] #team @person` or `/task list`');

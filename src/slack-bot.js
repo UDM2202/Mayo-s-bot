@@ -3,15 +3,15 @@ const { App, ExpressReceiver } = pkg;
 import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.join(__dirname, '..', 'taskonbot.db');
 const db = new Database(DB_PATH);
 
-// Custom receiver to use a specific path instead of port
 const receiver = new ExpressReceiver({
   signingSecret: process.env.SLACK_SIGNING_SECRET,
-  endpoints: '/slack',
+  endpoints: '/slack/events',
 });
 
 const app = new App({
@@ -19,51 +19,52 @@ const app = new App({
   receiver,
 });
 
-// /taskon
-app.command('/taskon', async ({ ack, say }) => {
+// ── /taskon ──
+app.command('/taskon', async ({ ack, respond }) => {
   await ack();
-  await say({
-    text: `🤖 *TaskOnBot*\n\n/task create [title] - Create a task\n/task list - List all tasks\n/tasks - Your tasks`,
-    mrkdwn: true,
-  });
+  await respond(`🤖 *TaskOnBot*\n/task create [title] — Create task\n/tasks — Your tasks\n/task list — All tasks`);
 });
 
-// /task
-app.command('/task', async ({ command, ack, say }) => {
+// ── /task ──
+app.command('/task', async ({ command, ack, respond }) => {
   await ack();
-  const text = command.text.trim();
+  const text = command.text.trim().toLowerCase();
 
-  if (!text || text === 'list') {
-    const tasks = db.prepare('SELECT title, status FROM tasks LIMIT 10').all();
-    if (tasks.length === 0) return await say('📭 No tasks yet. `/task create My task`');
-    const list = tasks.map(t => `• ${t.status === 'completed' ? '✅' : '⏳'} ${t.title}`).join('\n');
-    return await say({ text: `📋 *Tasks*\n${list}`, mrkdwn: true });
+  if (text === 'list' || text === '') {
+    const tasks = db.prepare('SELECT id, title, status FROM tasks ORDER BY created_at DESC LIMIT 10').all();
+    if (tasks.length === 0) return await respond('No tasks yet.');
+    const list = tasks.map(t => `• \`${t.id}\` ${t.title} — *${t.status}*`).join('\n');
+    return await respond(list);
   }
 
-  if (text.startsWith('create')) {
-    const title = text.replace('create', '').trim();
-    if (!title) return await say('❌ `/task create Buy groceries`');
-    const id = require('crypto').randomUUID().substring(0, 8);
+  if (text.startsWith('create ')) {
+    const title = text.replace('create ', '');
+    const id = crypto.randomUUID().slice(0, 8);
     db.prepare(`INSERT INTO tasks (id, title, status, team_id, priority, assignee, created_at, updated_at)
       VALUES (?, ?, 'pending', 'engineering', 'medium', ?, datetime('now'), datetime('now'))`)
       .run(id, title, command.user_name);
-    return await say({ text: `✅ *${id}* — ${title}\n👤 ${command.user_name}`, mrkdwn: true });
+    return await respond(`✅ *${id}* ${title} created by @${command.user_name}`);
   }
 
-  await say({ text: `Commands:\n\`/task create [title]\` | \`/task list\``, mrkdwn: true });
+  if (text.startsWith('move ')) {
+    const [, taskId, status] = text.split(' ');
+    const valid = ['pending', 'in-progress', 'review', 'blocked', 'completed'];
+    if (!valid.includes(status)) return await respond(`Use: ${valid.join(', ')}`);
+    db.prepare('UPDATE tasks SET status = ?, updated_at = datetime("now") WHERE id = ?').run(status, taskId);
+    return await respond(`✅ ${taskId} → *${status}*`);
+  }
+
+  await respond('Try: `/task create Fix bug` or `/task list`');
 });
 
-// /tasks
-app.command('/tasks', async ({ command, ack, say }) => {
+// ── /tasks ──
+app.command('/tasks', async ({ command, ack, respond }) => {
   await ack();
-  const tasks = db.prepare('SELECT * FROM tasks WHERE assignee = ? LIMIT 10').all(command.user_name);
-  if (tasks.length === 0) return await say('📭 No tasks assigned to you.');
-  const list = tasks.map(t => `• ${t.title} [${t.status}]`).join('\n');
-  await say({ text: `👤 *Your Tasks*\n${list}`, mrkdwn: true });
+  const tasks = db.prepare('SELECT id, title, status FROM tasks WHERE assignee = ? LIMIT 10').all(command.user_name);
+  if (tasks.length === 0) return await respond('No tasks assigned to you.');
+  const list = tasks.map(t => `• \`${t.id}\` ${t.title} — *${t.status}*`).join('\n');
+  await respond(list);
 });
 
-app.error(async (error) => console.error(error));
-
-// Export the receiver for the main server
+// ── Start ──
 export default receiver;
-export { app };

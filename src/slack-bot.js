@@ -1,4 +1,5 @@
-import { App, ExpressReceiver } from '@slack/bolt';
+import pkg from '@slack/bolt';
+const { App, ExpressReceiver } = pkg;
 import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';

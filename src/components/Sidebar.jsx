@@ -53,10 +53,28 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
           </button>
         ))}
         {!collapsed && (
-          <button onClick={() => { const name = prompt('Enter new team name:'); if (name) fetch('http://localhost:3001/api/teams', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }).then(r => r.json()).then(t => setTeams([...teams, t])); }}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:text-slate-400 hover:bg-white/[0.02] transition-all mt-1">
-            <span className="text-lg">+</span><span>Add Team</span>
-          </button>
+<button
+  onClick={async () => {
+    const name = prompt('Enter new team name:');
+    if (name) {
+      try {
+        const res = await fetch('/api/teams', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
+        });
+        const newTeam = await res.json();
+        setTeams([...teams, newTeam]);
+      } catch (err) {
+        alert('Failed to create team');
+      }
+    }
+  }}
+  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:text-slate-400 hover:bg-white/[0.02] transition-all mt-1"
+>
+  <span className="text-lg">+</span>
+  <span>Add Team</span>
+</button>
         )}
       </div>
       <button onClick={() => setCollapsed(!collapsed)}

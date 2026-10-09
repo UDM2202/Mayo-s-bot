@@ -101,6 +101,12 @@ async function initSchema() {
     );
   `);
 
+  // Block Supabase's public REST API from reading these tables (the server
+  // connects as the table owner, which RLS doesn't restrict)
+  for (const table of ['teams', 'users', 'team_members', 'tasks', 'activity_log', 'oauth_states', 'slack_installations', 'workspaces']) {
+    await pool.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`);
+  }
+
   // Seed default teams if empty
   const { count } = await one('SELECT COUNT(*)::int AS count FROM teams');
   if (count === 0) {

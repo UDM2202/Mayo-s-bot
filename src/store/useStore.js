@@ -96,12 +96,18 @@ const useStore = create((set, get) => ({
   },
 
   addTask: async (taskData) => {
-    await fetch(`${API}/tasks`, {
+    const res = await fetch(`${API}/tasks`, {
       method: 'POST',
       headers: get().getHeaders(),
-      body: JSON.stringify(taskData),
+      body: JSON.stringify({ team_id: get().activeTeam, ...taskData }),
     });
-    get().loadTasks();
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(`Could not create task: ${err.error || res.statusText}`);
+      return;
+    }
+    if (get().showMyTasks) get().loadMyTasks();
+    else get().loadTasks();
     get().fetchTeams();
   },
 

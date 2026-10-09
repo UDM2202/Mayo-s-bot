@@ -1,47 +1,50 @@
 import { Router } from 'express';
-import db from '../db/schema.js';
+import { all, one, run } from '../db/schema.js';
 import { v4 as uuid } from 'uuid';
 import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 router.use(authMiddleware);
 
-// Get tasks for a team (must be a member)
-router.get('/', (req, res) => {
-  const teamId = req.query.team || req.user.team_id;   // default to user's team
-  const member = db.prepare('SELECT 1 FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, teamId);
-  if (!member) return res.status(403).json({ error: 'Not a member of this team' });
+// Pass async errors to Express instead of crashing the request
+const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 
-  const rows = db.prepare('SELECT * FROM tasks WHERE team_id = ? ORDER BY created_at DESC').all(teamId);
-  const tasks = rows.map(task => ({ ...task, tags: JSON.parse(task.tags || '[]') }));
-  res.json(tasks);
-});
+const isMember = (userId, teamId) =>
+  one('SELECT 1 FROM team_members WHERE user_id = $1 AND team_id = $2', [userId, teamId]);
+
+const parseTags = (task) => ({ ...task, tags: JSON.parse(task.tags || '[]') });
+
+// Get tasks for a team (must be a member)
+router.get('/', wrap(async (req, res) => {
+  const teamId = req.query.team || req.user.team_id;   // default to user's team
+  if (!(await isMember(req.user.id, teamId))) return res.status(403).json({ error: 'Not a member of this team' });
+
+  const rows = await all('SELECT * FROM tasks WHERE team_id = $1 ORDER BY created_at DESC', [teamId]);
+  res.json(rows.map(parseTags));
+}));
 
 // Get single task
-router.get('/:id', (req, res) => {
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
+router.get('/:id', wrap(async (req, res) => {
+  const task = await one('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
   if (!task) return res.status(404).json({ error: 'Task not found' });
-  // Check membership
-  const member = db.prepare('SELECT 1 FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, task.team_id);
-  if (!member) return res.status(403).json({ error: 'Access denied' });
-  task.tags = JSON.parse(task.tags || '[]');
-  res.json(task);
-});
+  if (!(await isMember(req.user.id, task.team_id))) return res.status(403).json({ error: 'Access denied' });
+  res.json(parseTags(task));
+}));
 
 // Create task
-router.post('/', (req, res) => {
+router.post('/', wrap(async (req, res) => {
   const body = req.body;
   const id = uuid();
   const now = new Date().toISOString();
   // Use the team the dashboard is viewing, as long as the user belongs to it
   const team = body.team_id || req.user.team_id;
-  const member = db.prepare('SELECT 1 FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, team);
-  if (!member) return res.status(403).json({ error: 'Not a member of this team' });
+  if (!(await isMember(req.user.id, team))) return res.status(403).json({ error: 'Not a member of this team' });
 
-  db.prepare(`
+  const task = await one(`
     INSERT INTO tasks (id, title, description, status, assignee, team_id, priority, due_date, tags, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    RETURNING *
+  `, [
     id,
     body.title || 'Untitled Task',
     body.description || '',
@@ -52,99 +55,91 @@ router.post('/', (req, res) => {
     body.due_date || '',
     JSON.stringify(body.tags || []),
     now,
-    now
-  );
+    now,
+  ]);
 
-  db.prepare('INSERT INTO activity_log (task_id, action, details) VALUES (?, ?, ?)').run(
-    id, 'created', `Task created: ${body.title}`
-  );
+  await run('INSERT INTO activity_log (task_id, action, details) VALUES ($1, $2, $3)', [
+    id, 'created', `Task created: ${body.title}`,
+  ]);
 
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
-  task.tags = JSON.parse(task.tags || '[]');
-  res.status(201).json(task);
-});
+  res.status(201).json(parseTags(task));
+}));
 
 // Update task
-router.put('/:id', (req, res) => {
+router.put('/:id', wrap(async (req, res) => {
   const { id } = req.params;
   const body = req.body;
   const now = new Date().toISOString();
 
-  const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+  const existing = await one('SELECT * FROM tasks WHERE id = $1', [id]);
   if (!existing) return res.status(404).json({ error: 'Task not found' });
-  const member = db.prepare('SELECT 1 FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, existing.team_id);
-  if (!member) return res.status(403).json({ error: 'Access denied' });
+  if (!(await isMember(req.user.id, existing.team_id))) return res.status(403).json({ error: 'Access denied' });
 
-  db.prepare(`
-    UPDATE tasks 
-    SET title = ?, description = ?, status = ?, assignee = ?, team_id = ?, 
-        priority = ?, due_date = ?, tags = ?, updated_at = ?
-    WHERE id = ?
-  `).run(
+  const task = await one(`
+    UPDATE tasks
+    SET title = $1, description = $2, status = $3, assignee = $4,
+        priority = $5, due_date = $6, tags = $7, updated_at = $8
+    WHERE id = $9
+    RETURNING *
+  `, [
     body.title ?? existing.title,
     body.description ?? existing.description,
     body.status ?? existing.status,
     body.assignee ?? existing.assignee,
-    existing.team_id,
     body.priority ?? existing.priority,
     body.due_date ?? existing.due_date,
     JSON.stringify(body.tags ?? JSON.parse(existing.tags || '[]')),
     now,
-    id
-  );
+    id,
+  ]);
 
   if (body.status && body.status !== existing.status) {
-    db.prepare('INSERT INTO activity_log (task_id, action, details) VALUES (?, ?, ?)').run(
-      id, 'status_change', `${existing.status} → ${body.status}`
-    );
+    await run('INSERT INTO activity_log (task_id, action, details) VALUES ($1, $2, $3)', [
+      id, 'status_change', `${existing.status} → ${body.status}`,
+    ]);
   }
 
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
-  task.tags = JSON.parse(task.tags || '[]');
-  res.json(task);
-});
+  res.json(parseTags(task));
+}));
 
 // Delete task
-router.delete('/:id', (req, res) => {
+router.delete('/:id', wrap(async (req, res) => {
   const { id } = req.params;
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+  const task = await one('SELECT * FROM tasks WHERE id = $1', [id]);
   if (!task) return res.status(404).json({ error: 'Task not found' });
-  const member = db.prepare('SELECT 1 FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, task.team_id);
-  if (!member) return res.status(403).json({ error: 'Access denied' });
+  if (!(await isMember(req.user.id, task.team_id))) return res.status(403).json({ error: 'Access denied' });
 
-  db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
-  db.prepare('INSERT INTO activity_log (task_id, action, details) VALUES (?, ?, ?)').run(
-    id, 'deleted', `Task deleted: ${task.title}`
-  );
+  await run('DELETE FROM tasks WHERE id = $1', [id]);
+  await run('INSERT INTO activity_log (task_id, action, details) VALUES ($1, $2, $3)', [
+    id, 'deleted', `Task deleted: ${task.title}`,
+  ]);
   res.json({ success: true });
-});
+}));
 
 // Activity log
-router.get('/activity/:taskId', (req, res) => {
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.taskId);
+router.get('/activity/:taskId', wrap(async (req, res) => {
+  const task = await one('SELECT * FROM tasks WHERE id = $1', [req.params.taskId]);
   if (!task) return res.status(404).json({ error: 'Task not found' });
-  const member = db.prepare('SELECT 1 FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, task.team_id);
-  if (!member) return res.status(403).json({ error: 'Access denied' });
+  if (!(await isMember(req.user.id, task.team_id))) return res.status(403).json({ error: 'Access denied' });
 
-  const logs = db.prepare('SELECT * FROM activity_log WHERE task_id = ? ORDER BY created_at DESC').all(req.params.taskId);
+  const logs = await all('SELECT * FROM activity_log WHERE task_id = $1 ORDER BY created_at DESC', [req.params.taskId]);
   res.json(logs);
-});
+}));
 
 // Export CSV
-router.get('/export/csv', (req, res) => {
+router.get('/export/csv', wrap(async (req, res) => {
   const teamId = req.query.team || req.user.team_id;
-  const member = db.prepare('SELECT 1 FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, teamId);
-  if (!member) return res.status(403).json({ error: 'Not a member' });
+  if (!(await isMember(req.user.id, teamId))) return res.status(403).json({ error: 'Not a member' });
 
-  const tasks = db.prepare('SELECT * FROM tasks WHERE team_id = ?').all(teamId);
+  const tasks = await all('SELECT * FROM tasks WHERE team_id = $1', [teamId]);
   const header = 'ID,Title,Status,Assignee,Team,Priority,Due Date,Created\n';
-  const rows = tasks.map(t => 
-    `${t.id},"${t.title}",${t.status},${t.assignee},${t.team_id},${t.priority},${t.due_date},${t.created_at}`
+  const rows = tasks.map(t =>
+    `${t.id},"${t.title}",${t.status},${t.assignee},${t.team_id},${t.priority},${t.due_date},${t.created_at.toISOString()}`
   ).join('\n');
 
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename=tasks.csv');
   res.send(header + rows);
-});
+}));
 
 export default router;

@@ -1,17 +1,15 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { DB_PATH } from '../data-path.js';
+import { one } from '../db/schema.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const db = new Database(DB_PATH);
-
-export function authMiddleware(req, res, next) {
+export async function authMiddleware(req, res, next) {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) return res.status(401).json({ error: 'Missing token' });
   const token = header.slice(7);
-  const user = db.prepare('SELECT id, username, team_id FROM users WHERE token = ?').get(token);
-  if (!user) return res.status(401).json({ error: 'Invalid token' });
-  req.user = user;
-  next();
+  try {
+    const user = await one('SELECT id, username, team_id FROM users WHERE token = $1', [token]);
+    if (!user) return res.status(401).json({ error: 'Invalid token' });
+    req.user = user;
+    next();
+  } catch (err) {
+    next(err);
+  }
 }

@@ -1,57 +1,23 @@
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { DATA_DIR } from './data-path.js';
+import { one, run } from './db/schema.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const STORE_PATH = path.join(DATA_DIR, 'installations.json');
-
-function readStore() {
-  try {
-    if (fs.existsSync(STORE_PATH)) {
-      return JSON.parse(fs.readFileSync(STORE_PATH, 'utf8'));
-    }
-  } catch (e) {
-    console.error('Error reading store:', e);
-  }
-  return {};
-}
-
-function writeStore(data) {
-  try {
-    fs.writeFileSync(STORE_PATH, JSON.stringify(data, null, 2));
-    console.log('Store written to', STORE_PATH);
-  } catch (e) {
-    console.error('Error writing store:', e);
-  }
-}
-
+// Slack installations (bot tokens), one row per workspace or enterprise
 export async function saveInstallation(installation) {
   const key = installation.team?.id ?? installation.enterprise?.id;
   console.log('[saveInstallation] saving key:', key);
-  console.log('[saveInstallation] bot token present:', !!installation.bot?.token);
-  
-  const store = readStore();
-  store[key] = installation;
-  writeStore(store);
+  await run(`
+    INSERT INTO slack_installations (id, data, updated_at) VALUES ($1, $2, now())
+    ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()
+  `, [key, installation]);
 }
 
 export async function fetchInstallation({ teamId, enterpriseId }) {
   const key = teamId ?? enterpriseId;
-  console.log('[fetchInstallation] looking up key:', key);
-  
-  const store = readStore();
-  console.log('[fetchInstallation] available keys:', Object.keys(store));
-  
-  if (!store[key]) {
-    throw new Error(`No installation found for ${key}`);
-  }
-  return store[key];
+  const row = await one('SELECT data FROM slack_installations WHERE id = $1', [key]);
+  if (!row) throw new Error(`No installation found for ${key}`);
+  return row.data;
 }
 
 export async function deleteInstallation({ teamId, enterpriseId }) {
   const key = teamId ?? enterpriseId;
-  const store = readStore();
-  delete store[key];
-  writeStore(store);
+  await run('DELETE FROM slack_installations WHERE id = $1', [key]);
 }

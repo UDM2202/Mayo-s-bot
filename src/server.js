@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { ready } from './db/schema.js';
 
 import tasksRouter from './api/tasks.js';
 import teamsRouter from './api/teams.js';
@@ -60,6 +61,15 @@ app.get('*', (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`✅ TaskOnBot running on port ${port}`);
+// Errors from async routes
+app.use((err, req, res, next) => {
+  console.error('Request error:', err.message);
+  res.status(500).json({ error: 'Server error' });
 });
+
+ready
+  .then(() => app.listen(port, () => console.log(`✅ TaskOnBot running on port ${port}`)))
+  .catch((err) => {
+    console.error('❌ Could not connect to the database:', err.message);
+    process.exit(1);
+  });

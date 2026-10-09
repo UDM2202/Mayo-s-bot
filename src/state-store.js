@@ -1,27 +1,18 @@
 import crypto from 'crypto';
+import { one, run } from './db/schema.js';
 
-export function createStateStore(db) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS oauth_states (
-      state TEXT PRIMARY KEY,
-      created_at INTEGER NOT NULL
-    )
-  `);
-
+export function createStateStore() {
   return {
     generateStateParam: async (installUrlOptions, date) => {
       const state = crypto.randomBytes(16).toString('hex');
-      db.prepare('INSERT INTO oauth_states (state, created_at) VALUES (?, ?)').run(state, Date.now());
+      await run('INSERT INTO oauth_states (state, created_at) VALUES ($1, $2)', [state, Date.now()]);
       return state;
     },
     verifyStateParam: async (date, state) => {
-      const row = db.prepare('SELECT state, created_at FROM oauth_states WHERE state = ?').get(state);
+      const row = await one('SELECT state, created_at FROM oauth_states WHERE state = $1', [state]);
       if (!row) throw new Error('State not found');
-      if (Date.now() - row.created_at > 10 * 60 * 1000) {
-        db.prepare('DELETE FROM oauth_states WHERE state = ?').run(state);
-        throw new Error('State expired');
-      }
-      db.prepare('DELETE FROM oauth_states WHERE state = ?').run(state);
+      await run('DELETE FROM oauth_states WHERE state = $1', [state]);
+      if (Date.now() - Number(row.created_at) > 10 * 60 * 1000) throw new Error('State expired');
       return row.state;
     },
   };

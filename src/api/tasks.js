@@ -33,7 +33,10 @@ router.post('/', (req, res) => {
   const body = req.body;
   const id = uuid();
   const now = new Date().toISOString();
-  const team = req.user.team_id;   // force team from auth
+  // Use the team the dashboard is viewing, as long as the user belongs to it
+  const team = body.team_id || req.user.team_id;
+  const member = db.prepare('SELECT 1 FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, team);
+  if (!member) return res.status(403).json({ error: 'Not a member of this team' });
 
   db.prepare(`
     INSERT INTO tasks (id, title, description, status, assignee, team_id, priority, due_date, tags, created_at, updated_at)

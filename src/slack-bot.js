@@ -6,9 +6,9 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { saveInstallation, fetchInstallation, deleteInstallation } from './token-store.js';
 import { createStateStore } from './state-store.js';
+import { DB_PATH } from './data-path.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.join(__dirname, '..', 'taskonbot.db');
 const db = new Database(DB_PATH);
 
 db.exec(`CREATE TABLE IF NOT EXISTS tasks (

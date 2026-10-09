@@ -1,9 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { DATA_DIR } from './data-path.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const STORE_PATH = path.join(__dirname, '..', 'installations.json');
+const STORE_PATH = path.join(DATA_DIR, 'installations.json');
 
 function readStore() {
   try {

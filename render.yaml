@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: taskonbot
+    runtime: node
+    plan: starter            # persistent disks need a paid instance
+    buildCommand: npm install && npm run build
+    startCommand: node src/start.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: DATA_DIR
+        value: /var/data
+      - key: SLACK_SIGNING_SECRET
+        sync: false
+      - key: SLACK_CLIENT_ID
+        sync: false
+      - key: SLACK_CLIENT_SECRET
+        sync: false
+      - key: SLACK_STATE_SECRET
+        generateValue: true
+    disk:
+      name: taskonbot-data
+      mountPath: /var/data
+      sizeGB: 1
